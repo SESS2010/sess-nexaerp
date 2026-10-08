@@ -55,6 +55,10 @@ export function RfqDetailPage() {
     return () => lifecycle.unmount()
   }, [lifecycle])
 
+  // "Inviting…" belongs to one invite: another vendor, a scope/RFQ change or
+  // unmount releases it so the next invite can start (setters are stable).
+  lifecycle.bindBusy(TARGET.invite, setInviting)
+
   const chooseVendor = (id: string) => {
     lifecycle.setTarget(TARGET.invite, id)
     setVendorId(id)
@@ -134,12 +138,13 @@ export function RfqDetailPage() {
     }
     setError(null)
     setNotice('')
-    // Live until unmount, a company/login/RFQ change, or another vendor is chosen.
+    // Owns "Inviting…" and stays live until finish, unmount, a company/login/RFQ
+    // change, or another vendor is chosen (which also frees the button).
     lifecycle.setTarget(TARGET.invite, vendorId)
-    const isLive = lifecycle.begin(TARGET.invite)
+    const action = lifecycle.startAction(TARGET.invite)
+    const isLive = action.isLive
     const picked = vendors.find((vendor) => vendor.Id === vendorId)
     const pickedLabel = picked ? `${picked.VendorCode} — ${picked.Name}` : 'Vendor'
-    setInviting(true)
     try {
       const outcome = await inviteVendorFlow({
         api: quotationFlowApi,
@@ -178,7 +183,7 @@ export function RfqDetailPage() {
       void load()
       void loadInvitations()
     } finally {
-      if (isLive()) setInviting(false)
+      action.finish()
     }
   }
 

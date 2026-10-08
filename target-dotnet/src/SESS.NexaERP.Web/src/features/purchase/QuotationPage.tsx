@@ -162,6 +162,9 @@ export function QuotationPage() {
   const [verifying, setVerifying] = useState(false)
 
   const [saving, setSaving] = useState(false)
+  // "Recording…" flags belong to one action: picking another invitation /
+  // quotation / line, a scope change or unmount releases them (setters are stable).
+  screen.lifecycle.bindBusy(TARGET.invitation, setSaving).bindBusy(TARGET.verification, setVerifying)
   const [error, setError] = useState<unknown>(null)
   const [notice, setNotice] = useState('')
 
@@ -399,8 +402,6 @@ export function QuotationPage() {
       return
     }
 
-    // Live until unmount, a company/login change, or another invitation is chosen.
-    const isLive = screen.submitIsLive()
     const reviewed = revisionIntent(invitation)
     const payloadLines: QuotationLineRequest[] = lines.map((line) => ({
       RequestForQuotationLineId: line.rfqLineId,
@@ -437,7 +438,10 @@ export function QuotationPage() {
       HeaderDiscountValue: num(header.headerDiscountValue),
     }
 
-    setSaving(true)
+    // Owns "Recording…" and stays live until finish, unmount, a company/login
+    // change, or another invitation is chosen (which also frees the button).
+    const action = screen.startSubmit()
+    const isLive = action.isLive
     try {
       // Re-reads the invitation first; any change stops for an explicit review.
       const outcome = await submitQuotationFlow({
@@ -479,7 +483,7 @@ export function QuotationPage() {
           break
       }
     } finally {
-      if (isLive()) setSaving(false)
+      action.finish()
     }
   }
 
@@ -493,9 +497,9 @@ export function QuotationPage() {
     }
     // Live until unmount, a company/login change, or another quotation or line is chosen.
     screen.pickVerification(verifyForm.quotationNumber, verifyForm.lineId)
-    const isLive = screen.verifyIsLive()
+    const action = screen.startVerify()
+    const isLive = action.isLive
     const number = verifyQuotation.QuotationNumber
-    setVerifying(true)
     try {
       const outcome = await verifyQuotationFlow({
         api: quotationFlowApi,
@@ -521,7 +525,7 @@ export function QuotationPage() {
         void loadQuotationRows()
       }
     } finally {
-      if (isLive()) setVerifying(false)
+      action.finish()
     }
   }
 

@@ -7,7 +7,7 @@ import {
 } from '../../api/purchase'
 import type { ComparisonAction } from '../../api/purchase'
 import type { ComparisonDetail, QuotationListItem } from '../../types/purchase'
-import { OperationIntent, RequestGate, comparisonQuotationChoices, sessionScopeKey } from './quotationDraft'
+import { OperationIntent, RequestGate, comparisonQuotationChoices, isStaleConflict, sessionScopeKey } from './quotationDraft'
 import { readComparisonQuotations, recommendFlow } from './quotationFlows'
 import { quotationFlowApi } from './quotationFlowApi'
 import { ScreenLifecycle, TARGET } from './screenLifecycle'
@@ -90,6 +90,13 @@ export function ComparisonDetailPage() {
 
   const [remarks, setRemarks] = useState('')
   const [busy, setBusy] = useState<ComparisonAction | null>(null)
+  // Busy flags belong to one action: another winner (recommend), a scope /
+  // comparison change or unmount releases them, so the next action can start.
+  // Approval actions keep one key across an identical retry (lost answer).
+  lifecycle
+    .bindBusy(TARGET.winner, setRecommending)
+    .bindBusy(TARGET.approval, (isBusy) => { if (!isBusy) setBusy(null) })
+  const approvalIntent = useRef(new OperationIntent(() => newIdempotencyKey('comparison-action')))
 
   const load = useCallback(async () => {
     const ticket = loadGate.current.begin()
@@ -114,6 +121,7 @@ export function ComparisonDetailPage() {
     // make every in-flight read and write continuation moot.
     lifecycle.changeScope()
     recommendIntent.current.clear()
+    approvalIntent.current.clear()
     setComparison(null)
     setQuotationId('')
     setKnownQuotations([])
@@ -178,10 +186,11 @@ export function ComparisonDetailPage() {
       return
     }
     if (recommending) return
-    // Live until unmount, a company/login/comparison change, or another winner is chosen.
+    // Owns "Recording…" and stays live until finish, unmount, a company/login/
+    // comparison change, or another winner is chosen (which also frees the button).
     lifecycle.setTarget(TARGET.winner, quotationId)
-    const isLive = lifecycle.begin(TARGET.winner)
-    setRecommending(true)
+    const action = lifecycle.startAction(TARGET.winner)
+    const isLive = action.isLive
     try {
       // Fresh read of the comparison first: a changed version stops for review,
       // a changed company/login/target posts nothing.
@@ -220,7 +229,7 @@ export function ComparisonDetailPage() {
           }
       }
     } finally {
-      if (isLive()) setRecommending(false)
+      action.finish()
     }
   }
 
@@ -232,22 +241,27 @@ export function ComparisonDetailPage() {
       setError(`Remarks are required to ${definition.label.toLowerCase()}.`)
       return
     }
-    const isLive = lifecycle.begin()
+    if (busy) return
+    const action = lifecycle.startAction(TARGET.approval)
+    const isLive = action.isLive
     setBusy(definition.action)
+    const body = { Remarks: remarks.trim(), Version: comparison.Version }
+    // Same key only for an identical retry of this action on this version.
+    const key = approvalIntent.current.keyFor([scope, comparison.ComparisonNumber, definition.action, body])
     try {
-      const result = await actOnComparison(comparison.ComparisonNumber, definition.action, {
-        Remarks: remarks.trim(),
-        Version: comparison.Version,
-        IdempotencyKey: newIdempotencyKey(`comparison-${definition.action}`),
-      })
+      const result = await actOnComparison(comparison.ComparisonNumber, definition.action, { ...body, IdempotencyKey: key })
       if (!isLive()) return
+      approvalIntent.current.clear()
       setRemarks('')
       setNotice(`${definition.label} succeeded. Status is now ${result.Status}.`)
       void load()
     } catch (err) {
-      if (isLive()) setError(err)
+      if (!isLive()) return
+      // A 409 means the comparison moved on: never replay that key.
+      if (isStaleConflict(err)) approvalIntent.current.clear()
+      setError(err)
     } finally {
-      if (isLive()) setBusy(null)
+      action.finish()
     }
   }
 

@@ -12,7 +12,44 @@ export class ScreenLifecycle {
   private mounted = true
   private readonly targets = new Map<string, { key: string; epoch: number }>()
   private readonly gates: RequestGate[] = []
+  /** Busy flag per action slot, with the token of the action that owns it. */
+  private readonly busy = new Map<string, { owner: number; set: (busy: boolean) => void }>()
 
+  /**
+   * Binds a slot's busy flag (a React state setter). The flag belongs to one
+   * action at a time: a target change, a scope change or unmount releases it,
+   * so the next action can start without a reload.
+   */
+  bindBusy(slot: string, set: (busy: boolean) => void): this {
+    const current = this.busy.get(slot)
+    if (current) current.set = set
+    else this.busy.set(slot, { owner: 0, set })
+    return this
+  }
+
+  /**
+   * Starts one action in a slot: sets its busy flag and returns isLive (scope,
+   * target and busy ownership) and finish (releases the flag only while this
+   * action still owns it, so a late old finish never frees a newer action).
+   */
+  startAction(slot: string): { isLive: () => boolean; finish: () => void } {
+    const targetLive = this.begin(slot)
+    const entry = this.busy.get(slot)
+    const owner = ++this.epoch
+    if (entry) {
+      entry.owner = owner
+      entry.set(true)
+    }
+    return {
+      isLive: () => targetLive() && (!entry || entry.owner === owner),
+      finish: () => {
+        if (entry && entry.owner === owner) {
+          entry.owner = 0
+          entry.set(false)
+        }
+      },
+    }
+  }
   /** Request gates reset (late reads dropped) on every scope change and on unmount. */
   track(...gates: RequestGate[]): this {
     this.gates.push(...gates)
@@ -45,6 +82,8 @@ export class ScreenLifecycle {
     const current = this.targets.get(slot)
     if (current && current.key === key) return false
     this.targets.set(slot, { key, epoch: ++this.epoch })
+    // The action on the previous target is cancelled: free its button.
+    this.releaseBusy(slot)
     return true
   }
 
@@ -62,6 +101,14 @@ export class ScreenLifecycle {
   private invalidate(): void {
     this.scopeEpoch = ++this.epoch
     for (const gate of this.gates) gate.reset()
+    for (const slot of this.busy.keys()) this.releaseBusy(slot)
+  }
+
+  private releaseBusy(slot: string): void {
+    const entry = this.busy.get(slot)
+    if (!entry || entry.owner === 0) return
+    entry.owner = 0
+    entry.set(false)
   }
 }
 
@@ -71,6 +118,8 @@ export const TARGET = {
   verification: 'verification',
   winner: 'winner',
   invite: 'invite',
+  /** Comparison approve / reject / request-revision / resubmit (no target to change). */
+  approval: 'approval',
 } as const
 
 /**
@@ -112,5 +161,15 @@ export class QuotationScreenController {
 
   verifyIsLive(): () => boolean {
     return this.lifecycle.begin(TARGET.verification)
+  }
+
+  /** Starts a quotation submit: owns the "Recording…" flag until finish or a different invitation. */
+  startSubmit(): { isLive: () => boolean; finish: () => void } {
+    return this.lifecycle.startAction(TARGET.invitation)
+  }
+
+  /** Starts a technical verification: owns its busy flag until finish or another quotation/line. */
+  startVerify(): { isLive: () => boolean; finish: () => void } {
+    return this.lifecycle.startAction(TARGET.verification)
   }
 }

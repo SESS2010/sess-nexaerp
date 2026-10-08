@@ -259,6 +259,140 @@ test('RFQ invite: choosing another vendor while the POST is in flight drops the 
   assert.equal(posts(fake, 'inviteVendorToRfq').length, 1)
 })
 
+// --- 1b. busy ownership (review of a8d7675, corrections 1–2) --------------------
+
+/** Exactly what the screens do: startAction → flow(isLive) → finally finish(). */
+async function screenAction<T>(lifecycle: ScreenLifecycle, slot: string, run: (isLive: () => boolean) => Promise<T>): Promise<T> {
+  const action = lifecycle.startAction(slot)
+  try {
+    return await run(action.isLive)
+  } finally {
+    action.finish()
+  }
+}
+
+function busyFlag(lifecycle: ScreenLifecycle, slot: string) {
+  const flag = { value: false, history: [] as boolean[] }
+  lifecycle.bindBusy(slot, (busy) => { flag.value = busy; flag.history.push(busy) })
+  return flag
+}
+
+test('submit: changing vendor mid-submit frees "Recording…", the next submit works, and A\'s late finish cannot free B', async () => {
+  const screen = new QuotationScreenController()
+  const busy = busyFlag(screen.lifecycle, TARGET.invitation)
+  screen.pickInvitation('A')
+  const preflightA = deferred<RfqInvitationCandidate[]>()
+  const postB = deferred<Rev869BDocumentResult>()
+  const fake = api({
+    listRfqInvitations: () => (fake.calls.filter((c) => c.name === 'listRfqInvitations').length === 1 ? preflightA.promise : Promise.resolve([invitation('B')])),
+    submitQuotation: (id) => (id === 'B' ? postB.promise : Promise.resolve(result('VQ-A'))),
+  })
+  const a = screenAction(screen.lifecycle, TARGET.invitation, (isLive) =>
+    submitQuotationFlow({ api: fake, reviewed: invitation('A'), body: body(), intent: new OperationIntent(newKey), scope: 'S', isLive }))
+  assert.equal(busy.value, true)
+  screen.pickInvitation('B')
+  assert.equal(busy.value, false, 'button usable again without a reload')
+  const b = screenAction(screen.lifecycle, TARGET.invitation, (isLive) =>
+    submitQuotationFlow({ api: fake, reviewed: invitation('B'), body: body({ VendorQuoteReference: 'CEN-1' }), intent: new OperationIntent(newKey), scope: 'S', isLive }))
+  assert.equal(busy.value, true)
+  preflightA.resolve([invitation('A')])
+  assert.equal((await a).kind, 'abandoned')
+  assert.equal(busy.value, true, 'A\'s finish does not release B\'s flag')
+  postB.resolve(result('VQ-B'))
+  assert.equal((await b).kind, 'done')
+  assert.equal(busy.value, false)
+  assert.deepEqual(posts(fake, 'submitQuotation').map((call) => call.args[0]), ['B'], 'A posted nothing')
+})
+
+test('verify: changing quotation mid-verification frees the button; old result is dropped; new verification works', async () => {
+  const screen = new QuotationScreenController()
+  const busy = busyFlag(screen.lifecycle, TARGET.verification)
+  screen.pickVerification('VQ-61', 'line-VQ-61')
+  const postOld = deferred<Rev869BDocumentResult>()
+  const fake = api({ verifyQuotationTechnically: (number) => (number === 'VQ-61' ? postOld.promise : Promise.resolve(result('VQ-71'))) })
+  const form = (n: string) => ({ ...emptyVerificationForm(), quotationNumber: n, lineId: `line-${n}` })
+  const old = screenAction(screen.lifecycle, TARGET.verification, (isLive) =>
+    verifyQuotationFlow({ api: fake, quotation: quotation('VQ-61'), form: form('VQ-61'), intent: new OperationIntent(newKey), scope: 'S', isLive }))
+  screen.pickVerification('VQ-71', 'line-VQ-71')
+  assert.equal(busy.value, false)
+  const next = await screenAction(screen.lifecycle, TARGET.verification, (isLive) =>
+    verifyQuotationFlow({ api: fake, quotation: quotation('VQ-71'), form: form('VQ-71'), intent: new OperationIntent(newKey), scope: 'S', isLive }))
+  assert.equal(next.kind, 'done')
+  postOld.resolve(result('VQ-61'))
+  assert.equal((await old).kind, 'abandoned', 'no reload of the old quotation')
+  assert.equal(busy.value, false)
+})
+
+test('invite: changing vendor mid-invite frees "Inviting…"; the new invite runs; the old finish cannot free it', async () => {
+  const lifecycle = new ScreenLifecycle()
+  const busy = busyFlag(lifecycle, TARGET.invite)
+  lifecycle.setTarget(TARGET.invite, 'ven-15')
+  const postOld = deferred<Rev869BDocumentResult>()
+  const postNew = deferred<Rev869BDocumentResult>()
+  const fake = api({ inviteVendorToRfq: (_n, b) => ((b as { VendorId: string }).VendorId === 'ven-15' ? postOld.promise : postNew.promise) })
+  const run = (vendorId: string) => screenAction(lifecycle, TARGET.invite, (isLive) => inviteVendorFlow({
+    api: fake, rfqNumber: 'RFQ-26-27-000061', rfqVersion: 1, vendorId, remarks: '', canReadInvitations: false, intent: new OperationIntent(newKey), scope: 'S', isLive,
+  }))
+  const old = run('ven-15')
+  lifecycle.setTarget(TARGET.invite, 'ven-19')
+  assert.equal(busy.value, false)
+  const next = run('ven-19')
+  assert.equal(busy.value, true)
+  postOld.resolve(result('RFQ'))
+  assert.equal((await old).kind, 'abandoned')
+  assert.equal(busy.value, true)
+  postNew.resolve(result('RFQ'))
+  assert.equal((await next).kind, 'done')
+  assert.equal(busy.value, false)
+})
+
+test('recommend: changing winner during the preflight frees the button; the new recommend posts once', async () => {
+  const lifecycle = new ScreenLifecycle()
+  const busy = busyFlag(lifecycle, TARGET.winner)
+  lifecycle.setTarget(TARGET.winner, 'q-A')
+  const preflightOld = deferred<ComparisonDetail>()
+  let reads = 0
+  const fake = api({
+    getComparison: () => (++reads === 1 ? preflightOld.promise : Promise.resolve(comparison())),
+    recommendComparison: async () => result('CMP'),
+  })
+  const run = (id: string) => screenAction(lifecycle, TARGET.winner, (isLive) => recommendFlow({
+    api: fake, loaded: comparison(), intent: new OperationIntent(newKey), scope: 'S', isLive,
+    body: { VendorQuotationId: id, RecommendationRemarks: 'r', SingleSourceJustification: null },
+  }))
+  const old = run('q-A')
+  lifecycle.setTarget(TARGET.winner, 'q-B')
+  assert.equal(busy.value, false)
+  assert.equal((await run('q-B')).kind, 'done')
+  preflightOld.resolve(comparison())
+  assert.equal((await old).kind, 'abandoned')
+  assert.deepEqual(posts(fake, 'recommendComparison').map((call) => (call.args[1] as { VendorQuotationId: string }).VendorQuotationId), ['q-B'])
+  assert.equal(busy.value, false)
+})
+
+test('a same-target refresh keeps the action busy and live; unmount and company change release every busy flag', () => {
+  const screen = new QuotationScreenController()
+  const submitBusy = busyFlag(screen.lifecycle, TARGET.invitation)
+  const approvalBusy = busyFlag(screen.lifecycle, TARGET.approval)
+  screen.pickInvitation('A')
+  const action = screen.startSubmit()
+  screen.pickInvitation('A')
+  assert.equal(submitBusy.value, true)
+  assert.equal(action.isLive(), true)
+  const approval = screen.lifecycle.startAction(TARGET.approval)
+  screen.changeScope()
+  assert.deepEqual([submitBusy.value, approvalBusy.value, action.isLive(), approval.isLive()], [false, false, false, false])
+  const again = screen.startSubmit()
+  approval.finish()
+  action.finish()
+  assert.equal(submitBusy.value, true, 'old finishes after the scope change do not free the new action')
+  again.finish()
+  assert.equal(submitBusy.value, false)
+  screen.startSubmit()
+  screen.lifecycle.unmount()
+  assert.equal(submitBusy.value, false)
+})
+
 // --- 2. vendor-bound evidence ---------------------------------------------------
 
 test('vendor A → vendor B resets the header/evidence; the same vendor again keeps the draft', () => {
