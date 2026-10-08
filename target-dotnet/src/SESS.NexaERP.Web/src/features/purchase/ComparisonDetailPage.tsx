@@ -2,15 +2,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
   actOnComparison,
-  getComparison,
-  listQuotations,
   newIdempotencyKey,
-  recommendComparison,
   rememberDoc,
 } from '../../api/purchase'
 import type { ComparisonAction } from '../../api/purchase'
 import type { ComparisonDetail, QuotationListItem } from '../../types/purchase'
-import { OperationIntent, comparisonQuotationChoices, isStaleConflict, sessionScopeKey } from './quotationDraft'
+import { OperationIntent, RequestGate, comparisonQuotationChoices, sessionScopeKey } from './quotationDraft'
+import { readComparisonQuotations, recommendFlow } from './quotationFlows'
+import { quotationFlowApi } from './quotationFlowApi'
 import { PAGE_KEYS, useSession } from '../auth/SessionContext'
 import { StatusBadge } from '../employees/StatusBadge'
 import { formatAmount } from './PurchaseRequisitionListPage'
@@ -48,6 +47,11 @@ export function ComparisonDetailPage() {
   const { me, can } = useSession()
   const scope = sessionScopeKey(me)
   const recommendIntent = useRef(new OperationIntent(() => newIdempotencyKey('comparison-recommend')))
+  // Reset on a company / login / comparison change: late reads and write
+  // continuations from before are dropped.
+  const scopeGate = useRef(new RequestGate())
+  const loadGate = useRef(new RequestGate())
+  const labelsGate = useRef(new RequestGate())
 
   // POST /comparisons/{number}/recommend → purchase.commercial-comparisons:submit.
   const canRecommend = can(PAGE_KEYS.comparisons, 'submit')
@@ -63,6 +67,9 @@ export function ComparisonDetailPage() {
   const [quotationId, setQuotationId] = useState('')
   // Quotation numbers / vendors for the comparison lines (GET /quotations, per vendor).
   const [knownQuotations, setKnownQuotations] = useState<QuotationListItem[]>([])
+  // False when the quotation list was cut short or could not be read: unresolved
+  // quotations then stay disabled, and the screen says why.
+  const [labelsComplete, setLabelsComplete] = useState(true)
   const canListQuotations = can(PAGE_KEYS.quotations, 'view')
   const [recommendationRemarks, setRecommendationRemarks] = useState('')
   const [singleSourceJustification, setSingleSourceJustification] = useState('')
@@ -72,44 +79,66 @@ export function ComparisonDetailPage() {
   const [busy, setBusy] = useState<ComparisonAction | null>(null)
 
   const load = useCallback(async () => {
+    const ticket = loadGate.current.begin()
     setLoading(true)
     setError(null)
     try {
-      const detail = await getComparison(comparisonNumber)
+      const detail = await quotationFlowApi.getComparison(comparisonNumber)
+      if (!loadGate.current.isCurrent(ticket)) return
       setComparison(detail)
       rememberDoc('comparison', detail.ComparisonNumber)
     } catch (err) {
+      if (!loadGate.current.isCurrent(ticket)) return
       setComparison(null)
       setError(err)
     } finally {
-      setLoading(false)
+      if (loadGate.current.isCurrent(ticket)) setLoading(false)
     }
   }, [comparisonNumber])
 
   useEffect(() => {
-    // A new comparison or company/login: forget the previous selection and key.
+    // A new comparison or company/login: forget everything shown or typed, and
+    // make every in-flight read and write continuation moot.
+    scopeGate.current.reset()
+    loadGate.current.reset()
+    labelsGate.current.reset()
+    recommendIntent.current.clear()
+    setComparison(null)
     setQuotationId('')
     setKnownQuotations([])
-    recommendIntent.current.clear()
+    setLabelsComplete(true)
+    setRecommendationRemarks('')
+    setSingleSourceJustification('')
+    setRemarks('')
+    setRecommending(false)
+    setBusy(null)
+    setError(null)
+    setNotice('')
     void load()
   }, [load, scope])
 
   useEffect(() => {
+    const ticket = labelsGate.current.begin()
     const lines = comparison?.Lines ?? []
-    if (!canListQuotations || lines.length === 0) {
+    if (!comparison || !canListQuotations || lines.length === 0) {
       setKnownQuotations([])
+      setLabelsComplete(true)
       return
     }
-    let cancelled = false
-    const vendorIds = [...new Set(lines.map((line) => line.VendorId).filter((id): id is string => !!id))]
-    const queries = vendorIds.length > 0
-      ? vendorIds.map((vendorId) => listQuotations({ page: 1, pageSize: 100, vendorId }))
-      : [listQuotations({ page: 1, pageSize: 100 })]
-    Promise.all(queries)
-      .then((pages) => { if (!cancelled) setKnownQuotations(pages.flatMap((page) => page.Items)) })
-      .catch(() => { /* labels fall back to a plain ordinal; the ids still travel */ })
-    return () => { cancelled = true }
-  }, [comparison, canListQuotations])
+    // Every page of each compared vendor's quotations, not just the first 100.
+    readComparisonQuotations(quotationFlowApi, comparison)
+      .then((list) => {
+        if (!labelsGate.current.isCurrent(ticket)) return
+        setKnownQuotations(list.items)
+        setLabelsComplete(list.complete)
+      })
+      .catch(() => {
+        // Labels fall back to a plain ordinal and recommend stays blocked; the ids still show.
+        if (!labelsGate.current.isCurrent(ticket)) return
+        setKnownQuotations([])
+        setLabelsComplete(false)
+      })
+  }, [comparison, canListQuotations, scope])
 
   const quotationChoices = useMemo(
     () => comparisonQuotationChoices(comparison?.Lines ?? [], knownQuotations),
@@ -138,40 +167,48 @@ export function ComparisonDetailPage() {
       return
     }
     if (recommending) return
+    const live = scopeGate.current.snapshot()
+    const isLive = () => scopeGate.current.isCurrent(live)
     setRecommending(true)
     try {
-      // Freshly read the comparison: a changed version stops for review, never a silent retry.
-      const fresh = await getComparison(comparison.ComparisonNumber)
-      if (fresh.Version !== comparison.Version) {
-        setComparison(fresh)
-        recommendIntent.current.clear()
-        setError(`Comparison ${fresh.ComparisonNumber} changed since you opened it (now version ${fresh.Version}, ${fresh.Status}). Review it and recommend again.`)
-        return
-      }
-      const body = {
-        VendorQuotationId: quotationId,
-        RecommendationRemarks: recommendationRemarks.trim(),
-        SingleSourceJustification: comparison.IsSingleSource
-          ? singleSourceJustification.trim() || null
-          : null,
-        Version: fresh.Version,
-      }
-      const key = recommendIntent.current.keyFor([scope, comparison.ComparisonNumber, body])
-      const result = await recommendComparison(comparison.ComparisonNumber, { ...body, IdempotencyKey: key })
-      recommendIntent.current.clear()
-      setNotice(`Recommendation recorded. ${result.Number} is now ${result.Status}.`)
-      setQuotationId('')
-      setRecommendationRemarks('')
-      void load()
-    } catch (err) {
-      setError(err)
-      if (isStaleConflict(err)) {
-        recommendIntent.current.clear()
-        setNotice('The comparison changed on the server and has been reloaded. Review it and recommend again.')
-        void load()
+      // Fresh read of the comparison first: a changed version stops for review,
+      // a changed company/login/target posts nothing.
+      const outcome = await recommendFlow({
+        api: quotationFlowApi,
+        loaded: comparison,
+        body: {
+          VendorQuotationId: quotationId,
+          RecommendationRemarks: recommendationRemarks.trim(),
+          SingleSourceJustification: comparison.IsSingleSource
+            ? singleSourceJustification.trim() || null
+            : null,
+        },
+        intent: recommendIntent.current,
+        scope,
+        isLive,
+      })
+      switch (outcome.kind) {
+        case 'abandoned':
+          return
+        case 'changed':
+          setComparison(outcome.fresh)
+          setError(`Comparison ${outcome.fresh.ComparisonNumber} changed since you opened it (now version ${outcome.fresh.Version}, ${outcome.fresh.Status}). Review it and recommend again.`)
+          return
+        case 'done':
+          setNotice(`Recommendation recorded. ${outcome.result.Number} is now ${outcome.result.Status}.`)
+          setQuotationId('')
+          setRecommendationRemarks('')
+          void load()
+          return
+        case 'failed':
+          setError(outcome.error)
+          if (outcome.stale) {
+            setNotice('The comparison changed on the server and has been reloaded. Review it and recommend again.')
+            void load()
+          }
       }
     } finally {
-      setRecommending(false)
+      if (isLive()) setRecommending(false)
     }
   }
 
@@ -183,6 +220,8 @@ export function ComparisonDetailPage() {
       setError(`Remarks are required to ${definition.label.toLowerCase()}.`)
       return
     }
+    const live = scopeGate.current.snapshot()
+    const isLive = () => scopeGate.current.isCurrent(live)
     setBusy(definition.action)
     try {
       const result = await actOnComparison(comparison.ComparisonNumber, definition.action, {
@@ -190,13 +229,14 @@ export function ComparisonDetailPage() {
         Version: comparison.Version,
         IdempotencyKey: newIdempotencyKey(`comparison-${definition.action}`),
       })
+      if (!isLive()) return
       setRemarks('')
       setNotice(`${definition.label} succeeded. Status is now ${result.Status}.`)
       void load()
     } catch (err) {
-      setError(err)
+      if (isLive()) setError(err)
     } finally {
-      setBusy(null)
+      if (isLive()) setBusy(null)
     }
   }
 
@@ -350,6 +390,12 @@ export function ComparisonDetailPage() {
               ))}
             </select>
             <CopyId label="Quotation id" value={quotationId} />
+            {!labelsComplete && (
+              <span className="field-hint">
+                The quotation list could not be read in full, so some quotations cannot be named and cannot be
+                recommended. Reload the page; if it persists, report it.
+              </span>
+            )}
           </label>
           <label className="field field-wide">
             <span className="field-label">Recommendation remarks *</span>

@@ -1,16 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import {
-  getQuotation,
   getQuotationTaxContext,
-  getRfq,
-  listQuotations,
-  listRfqInvitations,
   newIdempotencyKey,
   quotationAttachmentUrl,
   rememberDoc,
-  submitQuotation,
-  verifyQuotationTechnically,
 } from '../../api/purchase'
 import { authorizedFetch, saveResponseAsFile } from '../../api/client'
 import type {
@@ -35,18 +29,27 @@ import {
   RequestGate,
   currentQuotationFor,
   draftLinesFor,
-  invitationDrift,
   invitationLabel,
-  isStaleConflict,
   quotationLineLabel,
   quotationOptionLabel,
   quotationScreenReads,
   revisionIntent,
   sessionScopeKey,
-  sortInvitations,
   verifiableQuotations,
 } from './quotationDraft'
 import type { DraftQuoteLine } from './quotationDraft'
+import {
+  emptyQuotationHeader,
+  emptyVerificationForm,
+  mergeRequiredDates,
+  readInvitations,
+  readQuotationDetail,
+  readQuotationRows,
+  submitQuotationFlow,
+  verifyQuotationFlow,
+} from './quotationFlows'
+import type { QuotationHeaderForm, VerificationForm } from './quotationFlows'
+import { quotationFlowApi } from './quotationFlowApi'
 
 function num(value: string): number {
   return Number(value) || 0
@@ -70,9 +73,20 @@ function todayLocal(): string {
   return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`
 }
 
+function blankHeader(): QuotationHeaderForm {
+  return emptyQuotationHeader({
+    submissionSource: QUOTATION_SUBMISSION_SOURCES[0].value,
+    vendorRegistrationType: VENDOR_REGISTRATION_TYPES[0],
+    receivedAt: todayLocal(),
+  })
+}
+
 export function QuotationPage() {
   const { me, can } = useSession()
-  const [params] = useSearchParams()
+  const [params, setParams] = useSearchParams()
+  const urlQuotation = params.get('quotation') ?? ''
+  const urlRfq = params.get('rfq') ?? ''
+  const urlVendor = params.get('vendor') ?? ''
 
   // GET /purchase/rfqs/{number} → purchase.rfq:view (only for the required dates).
   const canReadRfq = can(PAGE_KEYS.rfq, 'view')
@@ -85,10 +99,16 @@ export function QuotationPage() {
   const canVerifyTechnically = can(PAGE_KEYS.technicalVerification, 'verify')
   // GET /quotations/{number}/attachment → purchase.vendor-quotations:download.
   const canDownloadAttachment = can(PAGE_KEYS.quotations, 'download')
-  const reads = quotationScreenReads({ recordQuotation: canRecordQuotation, readQuotation: canReadQuotation, readRfq: canReadRfq })
+  const reads = useMemo(
+    () => quotationScreenReads({ recordQuotation: canRecordQuotation, readQuotation: canReadQuotation, readRfq: canReadRfq }),
+    [canRecordQuotation, canReadQuotation, canReadRfq],
+  )
 
-  // Company / login scope: a change clears every list, selection and pending key.
+  // Company / login scope: a change clears every list, form value, selection,
+  // pending key and busy flag, and makes every in-flight read or write moot.
   const scope = sessionScopeKey(me)
+  const lastScope = useRef('')
+  const scopeGate = useRef(new RequestGate())
   const invitationGate = useRef(new RequestGate())
   const linesGate = useRef(new RequestGate())
   const pendingGate = useRef(new RequestGate())
@@ -108,17 +128,10 @@ export function QuotationPage() {
   )
   const intent = invitation ? revisionIntent(invitation) : null
 
-  // --- quotation header ---
-  const [vendorQuoteReference, setVendorQuoteReference] = useState('')
-  const [currencyCode, setCurrencyCode] = useState('INR')
-  const [paymentTerms, setPaymentTerms] = useState('')
-  const [deliveryTerms, setDeliveryTerms] = useState('')
-  const [warrantyTerms, setWarrantyTerms] = useState('')
-  const [submissionSource, setSubmissionSource] = useState<string>(QUOTATION_SUBMISSION_SOURCES[0].value)
-  const [receivedAt, setReceivedAt] = useState(todayLocal())
-  const [attachmentObjectKey, setAttachmentObjectKey] = useState('')
-  const [attachmentSha256, setAttachmentSha256] = useState('')
-  const [vendorAttestation, setVendorAttestation] = useState('')
+  // --- quotation header + evidence (one object so a scope change clears all of it) ---
+  const [header, setHeader] = useState<QuotationHeaderForm>(blankHeader)
+  const setHeaderField = <K extends keyof QuotationHeaderForm>(key: K, value: QuotationHeaderForm[K]) =>
+    setHeader((prev) => ({ ...prev, [key]: value }))
   // R2: both GST state codes come from the server for the selected invitation
   // (vendor GSTIN / state, delivery warehouse / company profile). They are shown
   // read-only and sent back exactly as derived; submit is refused until they load.
@@ -126,22 +139,16 @@ export function QuotationPage() {
   const [taxContextError, setTaxContextError] = useState<unknown>(null)
   const [loadingTaxContext, setLoadingTaxContext] = useState(false)
   const [taxContextTick, setTaxContextTick] = useState(0)
-  const [vendorRegistrationType, setVendorRegistrationType] = useState<string>(VENDOR_REGISTRATION_TYPES[0])
-  const [headerDiscountValue, setHeaderDiscountValue] = useState('0')
-  const [requestLateAuthorization, setRequestLateAuthorization] = useState(false)
-  const [lateAuthorizationRemarks, setLateAuthorizationRemarks] = useState('')
 
   // --- technical verification (list + detail from GET /quotations) ---
   const [quotationRows, setQuotationRows] = useState<QuotationListItem[]>([])
+  const [quotationRowsComplete, setQuotationRowsComplete] = useState(true)
+  const [quotationRowsTotal, setQuotationRowsTotal] = useState(0)
   const [quotationRowsError, setQuotationRowsError] = useState<unknown>(null)
   const pendingQuotations = useMemo(() => verifiableQuotations(quotationRows), [quotationRows])
-  const [verifyQuotationNumber, setVerifyQuotationNumber] = useState(params.get('quotation') ?? '')
+  const [verifyForm, setVerifyForm] = useState<VerificationForm>(emptyVerificationForm)
   const [verifyQuotation, setVerifyQuotation] = useState<QuotationDetail | null>(null)
   const [loadingVerifyQuotation, setLoadingVerifyQuotation] = useState(false)
-  const [verifyLineId, setVerifyLineId] = useState('')
-  const [verifyCompliant, setVerifyCompliant] = useState(true)
-  const [verifyEvidence, setVerifyEvidence] = useState('{}')
-  const [verifyRemarks, setVerifyRemarks] = useState('')
   const [verifying, setVerifying] = useState(false)
 
   const [saving, setSaving] = useState(false)
@@ -151,8 +158,8 @@ export function QuotationPage() {
   const currentQuotation = invitation ? currentQuotationFor(invitation, quotationRows) : null
 
   const grandTotal = useMemo(
-    () => lines.reduce((sum, line) => sum + lineTotal(line), 0) - num(headerDiscountValue),
-    [lines, headerDiscountValue],
+    () => lines.reduce((sum, line) => sum + lineTotal(line), 0) - num(header.headerDiscountValue),
+    [lines, header.headerDiscountValue],
   )
 
   /** Reads invitations; returns the fresh rows, or null when the read failed or was superseded. */
@@ -162,8 +169,8 @@ export function QuotationPage() {
     setInvitationsError(null)
     setLoadingInvitations(true)
     try {
-      const rows = sortInvitations(await listRfqInvitations())
-      if (!invitationGate.current.isCurrent(ticket)) return null
+      const rows = await readInvitations(quotationFlowApi, reads)
+      if (!invitationGate.current.isCurrent(ticket) || !rows) return null
       setInvitations(rows)
       return rows
     } catch (err) {
@@ -176,48 +183,54 @@ export function QuotationPage() {
     } finally {
       if (invitationGate.current.isCurrent(ticket)) setLoadingInvitations(false)
     }
-  }, [reads.invitations])
+  }, [reads])
 
   const loadQuotationRows = useCallback(async () => {
     if (!reads.quotations) return
     const ticket = pendingGate.current.begin()
     setQuotationRowsError(null)
     try {
-      const page = await listQuotations({ page: 1, pageSize: 100 })
-      if (pendingGate.current.isCurrent(ticket)) setQuotationRows(page.Items)
+      // Every page at the server's page size; Submitted is filtered here (Defect #3).
+      const list = await readQuotationRows(quotationFlowApi, reads)
+      if (!pendingGate.current.isCurrent(ticket) || !list) return
+      setQuotationRows(list.items)
+      setQuotationRowsComplete(list.complete)
+      setQuotationRowsTotal(list.total)
     } catch (err) {
       if (pendingGate.current.isCurrent(ticket)) {
         setQuotationRows([])
         setQuotationRowsError(err)
       }
     }
-  }, [reads.quotations])
+  }, [reads])
 
   const loadVerifyQuotation = useCallback(async (number: string) => {
-    const trimmed = number.trim()
     const ticket = verifyGate.current.begin()
     setVerifyQuotation(null)
-    setVerifyLineId('')
+    setVerifyForm((prev) => ({ ...prev, lineId: '' }))
     verifyIntent.current.clear()
-    if (!trimmed || !reads.quotations) {
+    if (!number.trim() || !reads.quotations) {
       setLoadingVerifyQuotation(false)
       return
     }
     setLoadingVerifyQuotation(true)
     try {
-      const detail = await getQuotation(trimmed)
-      if (!verifyGate.current.isCurrent(ticket)) return
+      const detail = await readQuotationDetail(quotationFlowApi, reads, number)
+      if (!verifyGate.current.isCurrent(ticket) || !detail) return
       setVerifyQuotation(detail)
-      if (detail.Lines.length === 1) setVerifyLineId(detail.Lines[0].Id)
+      if (detail.Lines.length === 1) setVerifyForm((prev) => ({ ...prev, lineId: detail.Lines[0].Id }))
     } catch (err) {
       if (verifyGate.current.isCurrent(ticket)) setError(err)
     } finally {
       if (verifyGate.current.isCurrent(ticket)) setLoadingVerifyQuotation(false)
     }
-  }, [reads.quotations])
+  }, [reads])
 
-  // Scope change (company / login): drop everything, then read again.
+  // Scope change (company / login) or a new link: drop everything, then read again.
   useEffect(() => {
+    const previous = lastScope.current
+    lastScope.current = scope
+    scopeGate.current.reset()
     invitationGate.current.reset()
     linesGate.current.reset()
     pendingGate.current.reset()
@@ -225,30 +238,47 @@ export function QuotationPage() {
     submitIntent.current.clear()
     verifyIntent.current.clear()
     setInvitations([])
+    setInvitationsError(null)
+    setLoadingInvitations(false)
     setInvitationId('')
     setLines([])
+    setHeader(blankHeader())
     setQuotationRows([])
+    setQuotationRowsComplete(true)
+    setQuotationRowsTotal(0)
+    setQuotationRowsError(null)
     setVerifyQuotation(null)
-    setVerifyLineId('')
+    setLoadingVerifyQuotation(false)
+    setVerifyForm(emptyVerificationForm())
+    setSaving(false)
+    setVerifying(false)
     setError(null)
     setNotice('')
     if (!scope) return
+    if (previous && previous !== scope && (urlQuotation || urlRfq || urlVendor)) {
+      // A link opened for the previous company / login is not carried over.
+      // Clearing it re-runs this effect, which then reads afresh.
+      setParams(new URLSearchParams(), { replace: true })
+      return
+    }
     void loadInvitations()
     void loadQuotationRows()
-    const initial = params.get('quotation')
-    if (initial) void loadVerifyQuotation(initial)
-  }, [scope, loadInvitations, loadQuotationRows, loadVerifyQuotation, params])
+    if (urlQuotation) {
+      setVerifyForm({ ...emptyVerificationForm(), quotationNumber: urlQuotation })
+      void loadVerifyQuotation(urlQuotation)
+    }
+  }, [scope, urlQuotation, urlRfq, urlVendor, setParams, loadInvitations, loadQuotationRows, loadVerifyQuotation])
 
   // ?rfq=RFQ-… preselects that RFQ's only invitation; ?vendor=CODE narrows to one vendor.
   useEffect(() => {
     if (invitationId || invitations.length === 0) return
-    const rfqParam = params.get('rfq')?.trim().toUpperCase()
-    const vendorParam = params.get('vendor')?.trim().toUpperCase()
+    const rfqParam = urlRfq.trim().toUpperCase()
+    const vendorParam = urlVendor.trim().toUpperCase()
     if (!rfqParam) return
     const matches = invitations.filter((row) =>
       row.RfqNumber.toUpperCase() === rfqParam && (!vendorParam || row.VendorCode.toUpperCase() === vendorParam))
     if (matches.length === 1) setInvitationId(matches[0].InvitationId)
-  }, [invitations, invitationId, params])
+  }, [invitations, invitationId, urlRfq, urlVendor])
 
   // Choosing an invitation resets the draft and fills lines/currency from the server.
   // Keyed on the id only, so a refresh of the same invitation keeps typed rates.
@@ -261,11 +291,12 @@ export function QuotationPage() {
       setLines([])
       return
     }
-    setCurrencyCode(selected.CurrencyCode)
+    setHeaderField('currencyCode', selected.CurrencyCode)
     setLines(draftLinesFor(selected, null))
     if (!reads.rfqDetail) return
-    getRfq(selected.RfqNumber)
-      .then((detail) => { if (linesGate.current.isCurrent(ticket)) setLines(draftLinesFor(selected, detail)) })
+    quotationFlowApi.getRfq(selected.RfqNumber)
+      // A late answer only fills required dates still blank; typed values stay.
+      .then((detail) => { if (linesGate.current.isCurrent(ticket)) setLines((current) => mergeRequiredDates(current, detail)) })
       .catch(() => { /* required dates are a convenience; the lines are already filled */ })
     // A refresh of the same invitation must not wipe the typed draft, so the
     // list itself is deliberately not a dependency.
@@ -288,7 +319,8 @@ export function QuotationPage() {
   }, [invitationId, reads.invitations, taxContextTick, scope])
 
   const chooseVerifyQuotation = (number: string) => {
-    setVerifyQuotationNumber(number)
+    // Each quotation starts with a blank result, evidence and remarks.
+    setVerifyForm({ ...emptyVerificationForm(), quotationNumber: number })
     void loadVerifyQuotation(number)
   }
 
@@ -322,85 +354,92 @@ export function QuotationPage() {
       setError('Every line needs an HSN/SAC code for the tax computation.')
       return
     }
-    if (requestLateAuthorization && !lateAuthorizationRemarks.trim()) {
+    if (header.requestLateAuthorization && !header.lateAuthorizationRemarks.trim()) {
       setError('Late-submission authorization needs a written reason.')
       return
     }
 
+    const live = scopeGate.current.snapshot()
+    const isLive = () => scopeGate.current.isCurrent(live)
+    const reviewed = revisionIntent(invitation)
+    const payloadLines: QuotationLineRequest[] = lines.map((line) => ({
+      RequestForQuotationLineId: line.rfqLineId,
+      Quantity: num(line.quantity),
+      UnitRate: num(line.unitRate),
+      DiscountValue: num(line.discountValue),
+      PackingForwarding: num(line.packingForwarding),
+      Freight: num(line.freight),
+      Insurance: num(line.insurance),
+      OtherCharges: num(line.otherCharges),
+      PromisedDeliveryDate: line.promisedDeliveryDate,
+      HsnSacCode: line.hsnSacCode.trim(),
+      SupplierStateCode: taxContext.SupplierStateCode,
+      PlaceOfSupplyStateCode: taxContext.PlaceOfSupplyStateCode,
+      VendorRegistrationType: header.vendorRegistrationType,
+      RoundOff: num(line.roundOff),
+    }))
+    const body = {
+      VendorQuoteReference: header.vendorQuoteReference.trim(),
+      CurrencyCode: header.currencyCode.trim().toUpperCase(),
+      PaymentTerms: header.paymentTerms.trim(),
+      DeliveryTerms: header.deliveryTerms.trim(),
+      WarrantyTerms: header.warrantyTerms.trim(),
+      RequestLateAuthorization: header.requestLateAuthorization,
+      LateAuthorizationRemarks: header.requestLateAuthorization ? header.lateAuthorizationRemarks.trim() : null,
+      SubmissionSource: header.submissionSource,
+      ReceivedAt: new Date(header.receivedAt).toISOString(),
+      AttachmentObjectKey: header.attachmentObjectKey.trim(),
+      AttachmentSha256: header.attachmentSha256.trim(),
+      VendorAttestation: header.vendorAttestation.trim(),
+      InvitationVersion: invitation.InvitationVersion,
+      PreviousQuotationVersion: reviewed.previousQuotationVersion,
+      Lines: payloadLines,
+      HeaderDiscountValue: num(header.headerDiscountValue),
+    }
+
     setSaving(true)
     try {
-      // Re-read the invitation before writing; any change stops for an explicit review.
-      const fresh = await loadInvitations()
-      if (!fresh) {
-        setError('The invitation could not be re-read just now, so nothing was recorded. Try again.')
-        return
-      }
-      const drift = invitationDrift(invitation, fresh.find((row) => row.InvitationId === invitation.InvitationId))
-      if (drift) {
-        setError(drift)
-        return
-      }
-      const reviewed = revisionIntent(invitation)
-
-      const payloadLines: QuotationLineRequest[] = lines.map((line) => ({
-        RequestForQuotationLineId: line.rfqLineId,
-        Quantity: num(line.quantity),
-        UnitRate: num(line.unitRate),
-        DiscountValue: num(line.discountValue),
-        PackingForwarding: num(line.packingForwarding),
-        Freight: num(line.freight),
-        Insurance: num(line.insurance),
-        OtherCharges: num(line.otherCharges),
-        PromisedDeliveryDate: line.promisedDeliveryDate,
-        HsnSacCode: line.hsnSacCode.trim(),
-        SupplierStateCode: taxContext.SupplierStateCode,
-        PlaceOfSupplyStateCode: taxContext.PlaceOfSupplyStateCode,
-        VendorRegistrationType: vendorRegistrationType,
-        RoundOff: num(line.roundOff),
-      }))
-      const body = {
-        VendorQuoteReference: vendorQuoteReference.trim(),
-        CurrencyCode: currencyCode.trim().toUpperCase(),
-        PaymentTerms: paymentTerms.trim(),
-        DeliveryTerms: deliveryTerms.trim(),
-        WarrantyTerms: warrantyTerms.trim(),
-        RequestLateAuthorization: requestLateAuthorization,
-        LateAuthorizationRemarks: requestLateAuthorization ? lateAuthorizationRemarks.trim() : null,
-        SubmissionSource: submissionSource,
-        ReceivedAt: new Date(receivedAt).toISOString(),
-        AttachmentObjectKey: attachmentObjectKey.trim(),
-        AttachmentSha256: attachmentSha256.trim(),
-        VendorAttestation: vendorAttestation.trim(),
-        InvitationVersion: invitation.InvitationVersion,
-        PreviousQuotationVersion: reviewed.previousQuotationVersion,
-        Lines: payloadLines,
-        HeaderDiscountValue: num(headerDiscountValue),
-      }
-      // Same key only for an identical retry of this exact operation.
-      const key = submitIntent.current.keyFor([scope, invitation.InvitationId, body])
-      const result = await submitQuotation(invitation.InvitationId, { ...body, IdempotencyKey: key })
-      submitIntent.current.clear()
-      rememberDoc('quotation', result.Number)
-      setNotice(`Quotation ${result.Number} recorded (status ${result.Status}, version ${result.Version}).`)
-      // The invitation now carries a current quotation version: reread before any
-      // further revision, and load the new quotation for verification.
-      void loadInvitations()
-      void loadQuotationRows()
-      if (reads.quotations) {
-        setVerifyQuotationNumber(result.Number)
-        void loadVerifyQuotation(result.Number)
-      }
-    } catch (err) {
-      setError(err)
-      if (isStaleConflict(err)) {
-        // Stale: reread, show the current state, and wait for the user. No replay.
-        submitIntent.current.clear()
-        void loadInvitations()
-        void loadQuotationRows()
-        setNotice('The invitation or its current quotation changed on the server. The latest state is now shown — review it and submit again.')
+      // Re-reads the invitation first; any change stops for an explicit review.
+      const outcome = await submitQuotationFlow({
+        api: quotationFlowApi,
+        reviewed: invitation,
+        body,
+        intent: submitIntent.current,
+        scope,
+        isLive,
+      })
+      if (outcome.kind === 'abandoned') return
+      if (outcome.fresh) setInvitations(outcome.fresh)
+      switch (outcome.kind) {
+        case 'reread-failed':
+          setError('The invitation could not be re-read just now, so nothing was recorded. Try again.')
+          break
+        case 'drift':
+          setError(outcome.message)
+          break
+        case 'done': {
+          const result = outcome.result
+          rememberDoc('quotation', result.Number)
+          setNotice(`Quotation ${result.Number} recorded (status ${result.Status}, version ${result.Version}).`)
+          // The invitation now carries a current quotation version: reread before any
+          // further revision, and load the new quotation for verification.
+          void loadInvitations()
+          void loadQuotationRows()
+          if (reads.quotations) chooseVerifyQuotation(result.Number)
+          break
+        }
+        case 'failed':
+          setError(outcome.error)
+          if (outcome.stale) {
+            // Stale: reread, show the current state, and wait for the user. No replay.
+            void loadInvitations()
+            void loadQuotationRows()
+            setNotice('The invitation or its current quotation changed on the server. The latest state is now shown — review it and submit again.')
+          }
+          break
       }
     } finally {
-      setSaving(false)
+      if (isLive()) setSaving(false)
     }
   }
 
@@ -408,49 +447,53 @@ export function QuotationPage() {
     if (verifying) return
     setError(null)
     setNotice('')
-    if (!verifyQuotation || !verifyLineId) {
+    if (!verifyQuotation || !verifyForm.lineId) {
       setError('Choose the quotation and the line being verified.')
       return
     }
+    const live = scopeGate.current.snapshot()
+    const isLive = () => scopeGate.current.isCurrent(live)
     const number = verifyQuotation.QuotationNumber
     setVerifying(true)
     try {
-      const body = {
-        VendorQuotationLineId: verifyLineId,
-        IsCompliant: verifyCompliant,
-        ComplianceEvidenceJson: verifyEvidence.trim() || '{}',
-        Remarks: verifyRemarks.trim(),
-        QuotationVersion: verifyQuotation.Version,
+      const outcome = await verifyQuotationFlow({
+        api: quotationFlowApi,
+        quotation: verifyQuotation,
+        form: verifyForm,
+        intent: verifyIntent.current,
+        scope,
+        isLive,
+      })
+      if (outcome.kind === 'abandoned') return
+      if (outcome.kind === 'done') {
+        setNotice(`Technical verification recorded. ${outcome.result.Number} is now ${outcome.result.Status}.`)
+        setVerifyForm((prev) => ({ ...prev, remarks: '' }))
+        // Reread after every line decision: new version, new status, no stale selection.
+        void loadVerifyQuotation(number)
+        void loadQuotationRows()
+        return
       }
-      const key = verifyIntent.current.keyFor([scope, number, body])
-      const result = await verifyQuotationTechnically(number, { ...body, IdempotencyKey: key })
-      verifyIntent.current.clear()
-      setNotice(`Technical verification recorded. ${result.Number} is now ${result.Status}.`)
-      setVerifyRemarks('')
-      // Reread after every line decision: new version, new status, no stale selection.
-      void loadVerifyQuotation(number)
-      void loadQuotationRows()
-    } catch (err) {
-      setError(err)
-      if (isStaleConflict(err)) {
-        verifyIntent.current.clear()
+      setError(outcome.error)
+      if (outcome.stale) {
         setNotice('The quotation changed on the server. It has been reloaded — choose the line again and review before recording.')
         void loadVerifyQuotation(number)
         void loadQuotationRows()
       }
     } finally {
-      setVerifying(false)
+      if (isLive()) setVerifying(false)
     }
   }
 
   const downloadAttachment = async () => {
-    const number = verifyQuotation?.QuotationNumber ?? verifyQuotationNumber.trim()
+    const number = verifyQuotation?.QuotationNumber ?? verifyForm.quotationNumber.trim()
     if (!number) return
+    const live = scopeGate.current.snapshot()
     try {
       const response = await authorizedFetch(quotationAttachmentUrl(number))
+      if (!scopeGate.current.isCurrent(live)) return
       await saveResponseAsFile(response, `${number}-quotation`)
     } catch (err) {
-      setError(err)
+      if (scopeGate.current.isCurrent(live)) setError(err)
     }
   }
 
@@ -531,43 +574,43 @@ export function QuotationPage() {
           <div className="form-grid">
             <label className="field">
               <span className="field-label">Vendor quote reference *</span>
-              <input className="input" value={vendorQuoteReference} onChange={(e) => setVendorQuoteReference(e.target.value)} />
+              <input className="input" value={header.vendorQuoteReference} onChange={(e) => setHeaderField('vendorQuoteReference', e.target.value)} />
             </label>
             <label className="field">
               <span className="field-label">Currency *</span>
-              <input className="input mono" value={currencyCode} onChange={(e) => setCurrencyCode(e.target.value)} />
+              <input className="input mono" value={header.currencyCode} onChange={(e) => setHeaderField('currencyCode', e.target.value)} />
             </label>
             <label className="field">
               <span className="field-label">Received at *</span>
-              <input type="datetime-local" className="input" value={receivedAt} onChange={(e) => setReceivedAt(e.target.value)} />
+              <input type="datetime-local" className="input" value={header.receivedAt} onChange={(e) => setHeaderField('receivedAt', e.target.value)} />
             </label>
             <label className="field">
               <span className="field-label">Submission source *</span>
-              <select className="input" value={submissionSource} onChange={(e) => setSubmissionSource(e.target.value)}>
+              <select className="input" value={header.submissionSource} onChange={(e) => setHeaderField('submissionSource', e.target.value)}>
                 {QUOTATION_SUBMISSION_SOURCES.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
               </select>
             </label>
             <label className="field">
               <span className="field-label">Payment terms *</span>
-              <input className="input" value={paymentTerms} onChange={(e) => setPaymentTerms(e.target.value)} />
+              <input className="input" value={header.paymentTerms} onChange={(e) => setHeaderField('paymentTerms', e.target.value)} />
             </label>
             <label className="field">
               <span className="field-label">Delivery terms *</span>
-              <input className="input" value={deliveryTerms} onChange={(e) => setDeliveryTerms(e.target.value)} />
+              <input className="input" value={header.deliveryTerms} onChange={(e) => setHeaderField('deliveryTerms', e.target.value)} />
             </label>
             <label className="field">
               <span className="field-label">Warranty terms *</span>
-              <input className="input" value={warrantyTerms} onChange={(e) => setWarrantyTerms(e.target.value)} />
+              <input className="input" value={header.warrantyTerms} onChange={(e) => setHeaderField('warrantyTerms', e.target.value)} />
             </label>
             <label className="field">
               <span className="field-label">Header discount</span>
-              <input className="input text-right mono" value={headerDiscountValue} onChange={(e) => setHeaderDiscountValue(e.target.value)} />
+              <input className="input text-right mono" value={header.headerDiscountValue} onChange={(e) => setHeaderField('headerDiscountValue', e.target.value)} />
             </label>
 
             <div className="field-wide form-section-title">Tax identity</div>
             <label className="field">
               <span className="field-label">Vendor registration type *</span>
-              <select className="input" value={vendorRegistrationType} onChange={(e) => setVendorRegistrationType(e.target.value)}>
+              <select className="input" value={header.vendorRegistrationType} onChange={(e) => setHeaderField('vendorRegistrationType', e.target.value)}>
                 {VENDOR_REGISTRATION_TYPES.map((option) => <option key={option} value={option}>{option}</option>)}
               </select>
             </label>
@@ -633,35 +676,35 @@ export function QuotationPage() {
             <div className="field-wide form-section-title">Evidence</div>
             <label className="field">
               <span className="field-label">Attachment object key *</span>
-              <input className="input mono" value={attachmentObjectKey} onChange={(e) => setAttachmentObjectKey(e.target.value)} />
+              <input className="input mono" value={header.attachmentObjectKey} onChange={(e) => setHeaderField('attachmentObjectKey', e.target.value)} />
             </label>
             <label className="field">
               <span className="field-label">Attachment SHA-256 *</span>
-              <input className="input mono" value={attachmentSha256} onChange={(e) => setAttachmentSha256(e.target.value)} />
+              <input className="input mono" value={header.attachmentSha256} onChange={(e) => setHeaderField('attachmentSha256', e.target.value)} />
               <span className="field-hint">
                 There is no upload endpoint for quotation files — the key and hash must be supplied.
               </span>
             </label>
             <label className="field field-wide">
               <span className="field-label">Vendor attestation *</span>
-              <textarea className="input" rows={2} value={vendorAttestation} onChange={(e) => setVendorAttestation(e.target.value)} />
+              <textarea className="input" rows={2} value={header.vendorAttestation} onChange={(e) => setHeaderField('vendorAttestation', e.target.value)} />
             </label>
 
             <label className="field">
               <span className="field-label">Late submission</span>
               <select
                 className="input"
-                value={requestLateAuthorization ? 'yes' : 'no'}
-                onChange={(e) => setRequestLateAuthorization(e.target.value === 'yes')}
+                value={header.requestLateAuthorization ? 'yes' : 'no'}
+                onChange={(e) => setHeaderField('requestLateAuthorization', e.target.value === 'yes')}
               >
                 <option value="no">On time</option>
                 <option value="yes">Late — request authorization</option>
               </select>
             </label>
-            {requestLateAuthorization && (
+            {header.requestLateAuthorization && (
               <label className="field field-wide">
                 <span className="field-label">Late authorization remarks *</span>
-                <textarea className="input" rows={2} value={lateAuthorizationRemarks} onChange={(e) => setLateAuthorizationRemarks(e.target.value)} />
+                <textarea className="input" rows={2} value={header.lateAuthorizationRemarks} onChange={(e) => setHeaderField('lateAuthorizationRemarks', e.target.value)} />
               </label>
             )}
           </div>
@@ -739,7 +782,7 @@ export function QuotationPage() {
             <span className="field-label">Quotation *</span>
             <select
               className="input"
-              value={verifyQuotationNumber}
+              value={verifyForm.quotationNumber}
               disabled={!canReadQuotation || loadingVerifyQuotation}
               onChange={(e) => chooseVerifyQuotation(e.target.value)}
             >
@@ -748,21 +791,26 @@ export function QuotationPage() {
                   ? 'Quotations could not be read'
                   : pendingQuotations.length === 0 ? 'No quotations waiting for technical verification' : 'Choose a quotation to verify'}
               </option>
-              {verifyQuotationNumber && !pendingQuotations.some((row) => row.QuotationNumber === verifyQuotationNumber) && (
-                <option value={verifyQuotationNumber}>{verifyQuotationNumber}</option>
+              {verifyForm.quotationNumber && !pendingQuotations.some((row) => row.QuotationNumber === verifyForm.quotationNumber) && (
+                <option value={verifyForm.quotationNumber}>{verifyForm.quotationNumber}</option>
               )}
               {pendingQuotations.map((row) => (
                 <option key={row.Id} value={row.QuotationNumber}>{quotationOptionLabel(row)}</option>
               ))}
             </select>
+            {!quotationRowsComplete && (
+              <span className="field-hint">
+                Only {quotationRows.length} of {quotationRowsTotal} quotations could be read, so this list may be incomplete.
+              </span>
+            )}
           </label>
           <label className="field field-wide">
             <span className="field-label">Quotation line *</span>
             <select
               className="input"
-              value={verifyLineId}
+              value={verifyForm.lineId}
               disabled={!verifyQuotation}
-              onChange={(e) => setVerifyLineId(e.target.value)}
+              onChange={(e) => setVerifyForm((prev) => ({ ...prev, lineId: e.target.value }))}
             >
               <option value="">{verifyQuotation ? 'Choose the line being verified' : 'Load the quotation first'}</option>
               {verifyQuotation?.Lines.map((line) => (
@@ -779,7 +827,7 @@ export function QuotationPage() {
               <ErrorAlert error={quotationRowsError} onReload={() => void loadQuotationRows()} fallback="Quotations could not be read." />
             )}
             {verifyQuotation && <CopyId label="Quotation id" value={verifyQuotation.Id} />}
-            {verifyLineId && <CopyId label="Quotation line id" value={verifyLineId} />}
+            {verifyForm.lineId && <CopyId label="Quotation line id" value={verifyForm.lineId} />}
             {!canReadQuotation && (
               <span className="field-hint">
                 Choosing a line needs view access to vendor quotations (purchase.vendor-quotations:view).
@@ -788,18 +836,31 @@ export function QuotationPage() {
           </label>
           <label className="field">
             <span className="field-label">Result *</span>
-            <select className="input" value={verifyCompliant ? 'yes' : 'no'} onChange={(e) => setVerifyCompliant(e.target.value === 'yes')}>
+            <select
+              className="input"
+              value={verifyForm.compliant ? 'yes' : 'no'}
+              onChange={(e) => setVerifyForm((prev) => ({ ...prev, compliant: e.target.value === 'yes' }))}
+            >
               <option value="yes">Technically compliant</option>
               <option value="no">Not compliant</option>
             </select>
           </label>
           <label className="field">
             <span className="field-label">Compliance evidence (JSON)</span>
-            <input className="input mono" value={verifyEvidence} onChange={(e) => setVerifyEvidence(e.target.value)} />
+            <input
+              className="input mono"
+              value={verifyForm.evidence}
+              onChange={(e) => setVerifyForm((prev) => ({ ...prev, evidence: e.target.value }))}
+            />
           </label>
           <label className="field field-wide">
             <span className="field-label">Remarks</span>
-            <textarea className="input" rows={2} value={verifyRemarks} onChange={(e) => setVerifyRemarks(e.target.value)} />
+            <textarea
+              className="input"
+              rows={2}
+              value={verifyForm.remarks}
+              onChange={(e) => setVerifyForm((prev) => ({ ...prev, remarks: e.target.value }))}
+            />
           </label>
           <div className="field-wide action-row">
             {canVerifyTechnically && (

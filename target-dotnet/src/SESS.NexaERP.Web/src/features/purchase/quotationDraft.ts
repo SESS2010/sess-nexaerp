@@ -200,6 +200,8 @@ export class RequestGate {
   begin(): number { return ++this.current }
   isCurrent(ticket: number): boolean { return ticket === this.current }
   reset(): void { this.current++ }
+  /** Ticket for "nothing reset since now" without starting a request (scope epoch). */
+  snapshot(): number { return this.current }
 }
 
 /**

@@ -1,9 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
-  getRfq,
-  inviteVendorToRfq,
-  listRfqInvitations,
   listVendorOptions,
   newIdempotencyKey,
   rememberDoc,
@@ -16,7 +13,9 @@ import { formatAmount, formatDate } from './PurchaseRequisitionListPage'
 import { ErrorAlert } from '../../components/ErrorAlert'
 import { HistoryPanel } from '../../components/HistoryPanel'
 import { CopyId } from '../../components/CopyId'
-import { RequestGate, invitationsForRfq, sessionScopeKey } from './quotationDraft'
+import { OperationIntent, RequestGate, invitationsForRfq, sessionScopeKey } from './quotationDraft'
+import { inviteVendorFlow } from './quotationFlows'
+import { quotationFlowApi } from './quotationFlowApi'
 
 
 export function RfqDetailPage() {
@@ -43,20 +42,29 @@ export function RfqDetailPage() {
   const [invitations, setInvitations] = useState<RfqInvitationCandidate[]>([])
   const [invitationsError, setInvitationsError] = useState<unknown>(null)
   const invitationGate = useRef(new RequestGate())
+  // Reset on a company / login / RFQ change: late reads and write continuations are dropped.
+  const scopeGate = useRef(new RequestGate())
+  const loadGate = useRef(new RequestGate())
+  const vendorGate = useRef(new RequestGate())
+  // One logical invite keeps its key across an identical retry (lost answer).
+  const inviteIntent = useRef(new OperationIntent(() => newIdempotencyKey('rfq-invite')))
   const scope = sessionScopeKey(me)
 
   const load = useCallback(async () => {
+    const ticket = loadGate.current.begin()
     setLoading(true)
     setError(null)
     try {
-      const detail = await getRfq(rfqNumber)
+      const detail = await quotationFlowApi.getRfq(rfqNumber)
+      if (!loadGate.current.isCurrent(ticket)) return
       setRfq(detail)
       rememberDoc('rfq', detail.RfqNumber)
     } catch (err) {
+      if (!loadGate.current.isCurrent(ticket)) return
       setRfq(null)
       setError(err)
     } finally {
-      setLoading(false)
+      if (loadGate.current.isCurrent(ticket)) setLoading(false)
     }
   }, [rfqNumber])
 
@@ -67,7 +75,7 @@ export function RfqDetailPage() {
     const ticket = invitationGate.current.begin()
     setInvitationsError(null)
     try {
-      const rows = invitationsForRfq(await listRfqInvitations(), rfqNumber)
+      const rows = invitationsForRfq(await quotationFlowApi.listRfqInvitations(), rfqNumber)
       if (invitationGate.current.isCurrent(ticket)) setInvitations(rows)
     } catch (err) {
       if (invitationGate.current.isCurrent(ticket)) {
@@ -78,7 +86,19 @@ export function RfqDetailPage() {
   }, [rfqNumber, canRecordQuotation])
 
   useEffect(() => {
+    // New company / login / RFQ: clear everything shown, picked or typed.
+    scopeGate.current.reset()
+    loadGate.current.reset()
+    vendorGate.current.reset()
     invitationGate.current.reset()
+    inviteIntent.current.clear()
+    setRfq(null)
+    setVendors([])
+    setVendorSearch('')
+    setVendorId('')
+    setInviteRemarks('')
+    setInviting(false)
+    setNotice('')
     setInvitations([])
     setInvitationsError(null)
     void load()
@@ -87,38 +107,59 @@ export function RfqDetailPage() {
 
   useEffect(() => {
     if (!canInviteVendor) return
+    const ticket = vendorGate.current.begin()
     const handle = window.setTimeout(() => {
-      listVendorOptions(vendorSearch).then(setVendors).catch(setError)
+      listVendorOptions(vendorSearch)
+        .then((rows) => { if (vendorGate.current.isCurrent(ticket)) setVendors(rows) })
+        .catch((err) => { if (vendorGate.current.isCurrent(ticket)) setError(err) })
     }, 250)
     return () => window.clearTimeout(handle)
-  }, [vendorSearch, canInviteVendor])
+  }, [vendorSearch, canInviteVendor, scope])
 
   const invite = async () => {
-    if (!rfq) return
+    if (!rfq || inviting) return
     if (!vendorId) {
       setError('Pick a vendor to invite.')
       return
     }
     setError(null)
     setNotice('')
+    const live = scopeGate.current.snapshot()
+    const isLive = () => scopeGate.current.isCurrent(live)
+    const picked = vendors.find((vendor) => vendor.Id === vendorId)
+    const pickedLabel = picked ? `${picked.VendorCode} — ${picked.Name}` : 'Vendor'
     setInviting(true)
     try {
-      const result = await inviteVendorToRfq(rfq.RfqNumber, {
-        VendorId: vendorId,
-        Remarks: inviteRemarks.trim(),
-        RfqVersion: rfq.Version,
-        IdempotencyKey: newIdempotencyKey('rfq-invite'),
+      const outcome = await inviteVendorFlow({
+        api: quotationFlowApi,
+        rfqNumber: rfq.RfqNumber,
+        rfqVersion: rfq.Version,
+        vendorId,
+        remarks: inviteRemarks,
+        canReadInvitations: canRecordQuotation,
+        intent: inviteIntent.current,
+        scope,
+        isLive,
       })
-      const picked = vendors.find((vendor) => vendor.Id === vendorId)
+      if (outcome.kind === 'abandoned') return
+      if (outcome.kind === 'failed') {
+        setError(outcome.error)
+        if (outcome.stale) {
+          setNotice('The RFQ changed on the server and has been reloaded. Review it and invite again.')
+          void load()
+          void loadInvitations()
+        }
+        return
+      }
       setVendorId('')
       setInviteRemarks('')
-      setNotice(`${picked ? `${picked.VendorCode} — ${picked.Name}` : 'Vendor'} invited (${result.Status}).`)
+      setNotice(outcome.kind === 'done'
+        ? `${pickedLabel} invited (${outcome.result.Status}).`
+        : `${pickedLabel} is invited — the answer was lost on the way back, but the invitation is on the server.`)
       void load()
       void loadInvitations()
-    } catch (err) {
-      setError(err)
     } finally {
-      setInviting(false)
+      if (isLive()) setInviting(false)
     }
   }
 
