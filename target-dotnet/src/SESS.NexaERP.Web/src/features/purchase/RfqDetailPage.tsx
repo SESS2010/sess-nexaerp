@@ -1,66 +1,34 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
-  getRfq,
-  inviteVendorToRfq,
   listVendorOptions,
   newIdempotencyKey,
   rememberDoc,
 } from '../../api/purchase'
 import type { VendorOption } from '../../api/purchase'
-import type { RfqDetail } from '../../types/purchase'
+import type { RfqDetail, RfqInvitationCandidate } from '../../types/purchase'
 import { PAGE_KEYS, useSession } from '../auth/SessionContext'
 import { StatusBadge } from '../employees/StatusBadge'
 import { formatAmount, formatDate } from './PurchaseRequisitionListPage'
 import { ErrorAlert } from '../../components/ErrorAlert'
 import { HistoryPanel } from '../../components/HistoryPanel'
+import { CopyId } from '../../components/CopyId'
+import { OperationIntent, RequestGate, invitationsForRfq, sessionScopeKey } from './quotationDraft'
+import { inviteVendorFlow } from './quotationFlows'
+import { quotationFlowApi } from './quotationFlowApi'
+import { ScreenLifecycle, TARGET } from './screenLifecycle'
 
-/**
- * Vendors invited from this browser. GET /api/v1/purchase/rfqs/{number} includes
- * Lines but NOT Invitations, so an invitation id is visible exactly once — in the
- * invite response. Quotation submission needs that id, so it is kept locally
- * until the API exposes GET /api/v1/purchase/rfq-invitations.
- */
-interface LocalInvitation {
-  InvitationId: string
-  VendorId: string
-  VendorLabel: string
-  Status: string
-  Version: number
-  InvitedAt: string
-}
-
-function invitationKey(rfqNumber: string): string {
-  return `nexaerp.purchase.rfqInvitations.${rfqNumber}`
-}
-
-function readInvitations(rfqNumber: string): LocalInvitation[] {
-  try {
-    const raw = localStorage.getItem(invitationKey(rfqNumber))
-    return raw ? (JSON.parse(raw) as LocalInvitation[]) : []
-  } catch {
-    return []
-  }
-}
-
-function writeInvitation(rfqNumber: string, invitation: LocalInvitation): LocalInvitation[] {
-  const next = [invitation, ...readInvitations(rfqNumber).filter((x) => x.InvitationId !== invitation.InvitationId)]
-  try {
-    localStorage.setItem(invitationKey(rfqNumber), JSON.stringify(next))
-  } catch {
-    // storage unavailable; the id is still shown once in the table below
-  }
-  return next
-}
 
 export function RfqDetailPage() {
   const { rfqNumber = '' } = useParams()
   const navigate = useNavigate()
-  const { can } = useSession()
+  const { me, can } = useSession()
 
   // POST /purchase/rfqs/{number}/vendors → purchase.rfq:submit. The vendor
   // picker behind it reads masters.vendors:view.
   const canInviteVendor = can(PAGE_KEYS.rfq, 'submit') && can(PAGE_KEYS.vendors, 'view')
+  // GET /purchase/rfq-invitations and the quotation entry both need purchase.vendor-quotations:create.
+  const canRecordQuotation = can(PAGE_KEYS.quotations, 'create')
 
   const [rfq, setRfq] = useState<RfqDetail | null>(null)
   const [loading, setLoading] = useState(true)
@@ -72,71 +40,150 @@ export function RfqDetailPage() {
   const [vendorId, setVendorId] = useState('')
   const [inviteRemarks, setInviteRemarks] = useState('')
   const [inviting, setInviting] = useState(false)
-  const [invitations, setInvitations] = useState<LocalInvitation[]>([])
+  const [invitations, setInvitations] = useState<RfqInvitationCandidate[]>([])
+  const [invitationsError, setInvitationsError] = useState<unknown>(null)
+  const invitationGate = useRef(new RequestGate())
+  const loadGate = useRef(new RequestGate())
+  const vendorGate = useRef(new RequestGate())
+  // Unmount, company/login/RFQ change, or another chosen vendor drops in-flight
+  // reads and write continuations (screenLifecycle.ts).
+  const [lifecycle] = useState(() =>
+    new ScreenLifecycle().track(invitationGate.current, loadGate.current, vendorGate.current))
+
+  useEffect(() => {
+    lifecycle.mount()
+    return () => lifecycle.unmount()
+  }, [lifecycle])
+
+  // "Inviting…" belongs to one invite: another vendor, a scope/RFQ change or
+  // unmount releases it so the next invite can start (setters are stable).
+  lifecycle.bindBusy(TARGET.invite, setInviting)
+
+  const chooseVendor = (id: string) => {
+    lifecycle.setTarget(TARGET.invite, id)
+    setVendorId(id)
+  }
+  // One logical invite keeps its key across an identical retry (lost answer).
+  const inviteIntent = useRef(new OperationIntent(() => newIdempotencyKey('rfq-invite')))
+  const scope = sessionScopeKey(me)
 
   const load = useCallback(async () => {
+    const ticket = loadGate.current.begin()
     setLoading(true)
     setError(null)
     try {
-      const detail = await getRfq(rfqNumber)
+      const detail = await quotationFlowApi.getRfq(rfqNumber)
+      if (!loadGate.current.isCurrent(ticket)) return
       setRfq(detail)
       rememberDoc('rfq', detail.RfqNumber)
     } catch (err) {
+      if (!loadGate.current.isCurrent(ticket)) return
       setRfq(null)
       setError(err)
     } finally {
-      setLoading(false)
+      if (loadGate.current.isCurrent(ticket)) setLoading(false)
     }
   }, [rfqNumber])
 
+  const loadInvitations = useCallback(async () => {
+    // Only callers holding purchase.vendor-quotations:create read invitations;
+    // an RFQ viewer sees the RFQ without this call or an error.
+    if (!canRecordQuotation) return
+    const ticket = invitationGate.current.begin()
+    setInvitationsError(null)
+    try {
+      const rows = invitationsForRfq(await quotationFlowApi.listRfqInvitations(), rfqNumber)
+      if (invitationGate.current.isCurrent(ticket)) setInvitations(rows)
+    } catch (err) {
+      if (invitationGate.current.isCurrent(ticket)) {
+        setInvitations([])
+        setInvitationsError(err)
+      }
+    }
+  }, [rfqNumber, canRecordQuotation])
+
   useEffect(() => {
+    // New company / login / RFQ: clear everything shown, picked or typed.
+    lifecycle.changeScope()
+    inviteIntent.current.clear()
+    setRfq(null)
+    setVendors([])
+    setVendorSearch('')
+    setVendorId('')
+    setInviteRemarks('')
+    setInviting(false)
+    setNotice('')
+    setInvitations([])
+    setInvitationsError(null)
     void load()
-    setInvitations(readInvitations(rfqNumber.trim().toUpperCase()))
-  }, [load, rfqNumber])
+    void loadInvitations()
+  }, [load, loadInvitations, scope, lifecycle])
 
   useEffect(() => {
     if (!canInviteVendor) return
+    const ticket = vendorGate.current.begin()
     const handle = window.setTimeout(() => {
-      listVendorOptions(vendorSearch).then(setVendors).catch(setError)
+      listVendorOptions(vendorSearch)
+        .then((rows) => { if (vendorGate.current.isCurrent(ticket)) setVendors(rows) })
+        .catch((err) => { if (vendorGate.current.isCurrent(ticket)) setError(err) })
     }, 250)
     return () => window.clearTimeout(handle)
-  }, [vendorSearch, canInviteVendor])
+  }, [vendorSearch, canInviteVendor, scope])
 
   const invite = async () => {
-    if (!rfq) return
+    if (!rfq || inviting) return
     if (!vendorId) {
       setError('Pick a vendor to invite.')
       return
     }
     setError(null)
     setNotice('')
-    setInviting(true)
+    // Owns "Inviting…" and stays live until finish, unmount, a company/login/RFQ
+    // change, or another vendor is chosen (which also frees the button).
+    lifecycle.setTarget(TARGET.invite, vendorId)
+    const action = lifecycle.startAction(TARGET.invite)
+    const isLive = action.isLive
+    const picked = vendors.find((vendor) => vendor.Id === vendorId)
+    const pickedLabel = picked ? `${picked.VendorCode} — ${picked.Name}` : 'Vendor'
     try {
-      const result = await inviteVendorToRfq(rfq.RfqNumber, {
-        VendorId: vendorId,
-        Remarks: inviteRemarks.trim(),
-        RfqVersion: rfq.Version,
-        IdempotencyKey: newIdempotencyKey('rfq-invite'),
+      const outcome = await inviteVendorFlow({
+        api: quotationFlowApi,
+        rfqNumber: rfq.RfqNumber,
+        rfqVersion: rfq.Version,
+        vendorId,
+        remarks: inviteRemarks,
+        canReadInvitations: canRecordQuotation,
+        intent: inviteIntent.current,
+        scope,
+        isLive,
       })
-      const picked = vendors.find((vendor) => vendor.Id === vendorId)
-      setInvitations(
-        writeInvitation(rfq.RfqNumber, {
-          InvitationId: result.Id,
-          VendorId: vendorId,
-          VendorLabel: picked ? `${picked.VendorCode} — ${picked.Name}` : vendorId,
-          Status: result.Status,
-          Version: result.Version,
-          InvitedAt: new Date().toISOString(),
-        }),
-      )
+      if (outcome.kind === 'abandoned') return
+      if (outcome.kind === 'unresolved') {
+        // Only withdrawn/cancelled history is on file: not invited. Keep the
+        // vendor and remarks; the same invite keeps its key for a retry.
+        setError(outcome.error)
+        setNotice(`${pickedLabel} is not confirmed as invited — the answer was lost, and the only invitation on file for this vendor is ${outcome.status}. Check the invited vendors below before trying again.`)
+        void loadInvitations()
+        return
+      }
+      if (outcome.kind === 'failed') {
+        setError(outcome.error)
+        if (outcome.stale) {
+          setNotice('The RFQ changed on the server and has been reloaded. Review it and invite again.')
+          void load()
+          void loadInvitations()
+        }
+        return
+      }
       setVendorId('')
       setInviteRemarks('')
-      setNotice(`Vendor invited. Invitation id ${result.Id} — keep it, the API cannot list it back.`)
+      setNotice(outcome.kind === 'done'
+        ? `${pickedLabel} invited (${outcome.result.Status}).`
+        : `${pickedLabel} is invited — the answer was lost on the way back, but the invitation is on the server.`)
       void load()
-    } catch (err) {
-      setError(err)
+      void loadInvitations()
     } finally {
-      setInviting(false)
+      action.finish()
     }
   }
 
@@ -256,7 +303,7 @@ export function RfqDetailPage() {
           </label>
           <label className="field">
             <span className="field-label">Vendor *</span>
-            <select className="input" value={vendorId} onChange={(event) => setVendorId(event.target.value)}>
+            <select className="input" value={vendorId} onChange={(event) => chooseVendor(event.target.value)}>
               <option value="">Select vendor…</option>
               {vendors.map((vendor) => (
                 <option key={vendor.Id} value={vendor.Id}>{vendor.VendorCode} — {vendor.Name}</option>
@@ -283,39 +330,59 @@ export function RfqDetailPage() {
       </div>
       )}
 
-      <h2>Invitations issued from this browser</h2>
-      <div className="alert">
-        <span className="mono">GET /rfqs/{'{number}'}</span> returns Lines but not Invitations, and there is
-        no <span className="mono">GET /rfq-invitations</span>. An invitation id appears once, in the
-        invite response — quotation submission needs it, so it is kept here locally.
-      </div>
-      <div className="table-wrap">
-        <table className="table">
-          <thead>
-            <tr>
-              <th>Invitation id</th>
-              <th>Vendor</th>
-              <th>Status</th>
-              <th className="text-right">Version</th>
-              <th>Invited at</th>
-            </tr>
-          </thead>
-          <tbody>
-            {invitations.length === 0 && (
-              <tr><td colSpan={5} className="table-empty">No invitations issued from this browser.</td></tr>
-            )}
-            {invitations.map((invitation) => (
-              <tr key={invitation.InvitationId}>
-                <td className="mono">{invitation.InvitationId}</td>
-                <td>{invitation.VendorLabel}</td>
-                <td><StatusBadge value={invitation.Status} /></td>
-                <td className="text-right mono">{invitation.Version}</td>
-                <td>{new Date(invitation.InvitedAt).toLocaleString('en-IN')}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      {canRecordQuotation && (
+        <>
+          <h2>Invited vendors ({invitations.length})</h2>
+          {invitationsError != null && (
+            <ErrorAlert error={invitationsError} onReload={() => void loadInvitations()} fallback="Invited vendors could not be read." />
+          )}
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Vendor</th>
+                  <th>Status</th>
+                  <th className="text-right">Invitation version</th>
+                  <th>Quotation</th>
+                  <th>Quotes due</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {invitationsError == null && invitations.length === 0 && (
+                  <tr><td colSpan={6} className="table-empty">No vendors invited yet.</td></tr>
+                )}
+                {invitationsError != null && (
+                  <tr><td colSpan={6} className="table-empty">Invited vendors could not be read. Reload to try again.</td></tr>
+                )}
+                {invitations.map((invitation) => (
+                  <tr key={invitation.InvitationId}>
+                    <td>
+                      {invitation.VendorCode} — {invitation.VendorName}
+                      <div><CopyId label="Invitation id" value={invitation.InvitationId} /></div>
+                    </td>
+                    <td><StatusBadge value={invitation.Status} /></td>
+                    <td className="text-right mono">{invitation.InvitationVersion}</td>
+                    <td>
+                      {invitation.CurrentQuotationVersion == null
+                        ? 'Not yet received'
+                        : `Received · current quotation version ${invitation.CurrentQuotationVersion}`}
+                    </td>
+                    <td>{new Date(invitation.QuoteDueAt).toLocaleString('en-IN')}</td>
+                    <td>
+                      <Link
+                        to={`/purchase/quotations/new?rfq=${encodeURIComponent(invitation.RfqNumber)}&vendor=${encodeURIComponent(invitation.VendorCode)}`}
+                      >
+                        {invitation.CurrentQuotationVersion == null ? 'Record quotation' : 'Revise quotation'}
+                      </Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
 
       <HistoryPanel docType="RFQ" documentId={rfq.Id} />
     </div>
