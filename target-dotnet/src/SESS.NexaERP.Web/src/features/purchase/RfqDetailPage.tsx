@@ -16,6 +16,7 @@ import { CopyId } from '../../components/CopyId'
 import { OperationIntent, RequestGate, invitationsForRfq, sessionScopeKey } from './quotationDraft'
 import { inviteVendorFlow } from './quotationFlows'
 import { quotationFlowApi } from './quotationFlowApi'
+import { ScreenLifecycle, TARGET } from './screenLifecycle'
 
 
 export function RfqDetailPage() {
@@ -42,10 +43,22 @@ export function RfqDetailPage() {
   const [invitations, setInvitations] = useState<RfqInvitationCandidate[]>([])
   const [invitationsError, setInvitationsError] = useState<unknown>(null)
   const invitationGate = useRef(new RequestGate())
-  // Reset on a company / login / RFQ change: late reads and write continuations are dropped.
-  const scopeGate = useRef(new RequestGate())
   const loadGate = useRef(new RequestGate())
   const vendorGate = useRef(new RequestGate())
+  // Unmount, company/login/RFQ change, or another chosen vendor drops in-flight
+  // reads and write continuations (screenLifecycle.ts).
+  const [lifecycle] = useState(() =>
+    new ScreenLifecycle().track(invitationGate.current, loadGate.current, vendorGate.current))
+
+  useEffect(() => {
+    lifecycle.mount()
+    return () => lifecycle.unmount()
+  }, [lifecycle])
+
+  const chooseVendor = (id: string) => {
+    lifecycle.setTarget(TARGET.invite, id)
+    setVendorId(id)
+  }
   // One logical invite keeps its key across an identical retry (lost answer).
   const inviteIntent = useRef(new OperationIntent(() => newIdempotencyKey('rfq-invite')))
   const scope = sessionScopeKey(me)
@@ -87,10 +100,7 @@ export function RfqDetailPage() {
 
   useEffect(() => {
     // New company / login / RFQ: clear everything shown, picked or typed.
-    scopeGate.current.reset()
-    loadGate.current.reset()
-    vendorGate.current.reset()
-    invitationGate.current.reset()
+    lifecycle.changeScope()
     inviteIntent.current.clear()
     setRfq(null)
     setVendors([])
@@ -103,7 +113,7 @@ export function RfqDetailPage() {
     setInvitationsError(null)
     void load()
     void loadInvitations()
-  }, [load, loadInvitations, scope])
+  }, [load, loadInvitations, scope, lifecycle])
 
   useEffect(() => {
     if (!canInviteVendor) return
@@ -124,8 +134,9 @@ export function RfqDetailPage() {
     }
     setError(null)
     setNotice('')
-    const live = scopeGate.current.snapshot()
-    const isLive = () => scopeGate.current.isCurrent(live)
+    // Live until unmount, a company/login/RFQ change, or another vendor is chosen.
+    lifecycle.setTarget(TARGET.invite, vendorId)
+    const isLive = lifecycle.begin(TARGET.invite)
     const picked = vendors.find((vendor) => vendor.Id === vendorId)
     const pickedLabel = picked ? `${picked.VendorCode} — ${picked.Name}` : 'Vendor'
     setInviting(true)
@@ -142,6 +153,14 @@ export function RfqDetailPage() {
         isLive,
       })
       if (outcome.kind === 'abandoned') return
+      if (outcome.kind === 'unresolved') {
+        // Only withdrawn/cancelled history is on file: not invited. Keep the
+        // vendor and remarks; the same invite keeps its key for a retry.
+        setError(outcome.error)
+        setNotice(`${pickedLabel} is not confirmed as invited — the answer was lost, and the only invitation on file for this vendor is ${outcome.status}. Check the invited vendors below before trying again.`)
+        void loadInvitations()
+        return
+      }
       if (outcome.kind === 'failed') {
         setError(outcome.error)
         if (outcome.stale) {
@@ -279,7 +298,7 @@ export function RfqDetailPage() {
           </label>
           <label className="field">
             <span className="field-label">Vendor *</span>
-            <select className="input" value={vendorId} onChange={(event) => setVendorId(event.target.value)}>
+            <select className="input" value={vendorId} onChange={(event) => chooseVendor(event.target.value)}>
               <option value="">Select vendor…</option>
               {vendors.map((vendor) => (
                 <option key={vendor.Id} value={vendor.Id}>{vendor.VendorCode} — {vendor.Name}</option>

@@ -10,6 +10,7 @@ import type { ComparisonDetail, QuotationListItem } from '../../types/purchase'
 import { OperationIntent, RequestGate, comparisonQuotationChoices, sessionScopeKey } from './quotationDraft'
 import { readComparisonQuotations, recommendFlow } from './quotationFlows'
 import { quotationFlowApi } from './quotationFlowApi'
+import { ScreenLifecycle, TARGET } from './screenLifecycle'
 import { PAGE_KEYS, useSession } from '../auth/SessionContext'
 import { StatusBadge } from '../employees/StatusBadge'
 import { formatAmount } from './PurchaseRequisitionListPage'
@@ -49,9 +50,21 @@ export function ComparisonDetailPage() {
   const recommendIntent = useRef(new OperationIntent(() => newIdempotencyKey('comparison-recommend')))
   // Reset on a company / login / comparison change: late reads and write
   // continuations from before are dropped.
-  const scopeGate = useRef(new RequestGate())
   const loadGate = useRef(new RequestGate())
   const labelsGate = useRef(new RequestGate())
+  // Unmount, company/login/comparison change, or another chosen winner drops
+  // in-flight reads and write continuations (screenLifecycle.ts).
+  const [lifecycle] = useState(() => new ScreenLifecycle().track(loadGate.current, labelsGate.current))
+
+  useEffect(() => {
+    lifecycle.mount()
+    return () => lifecycle.unmount()
+  }, [lifecycle])
+
+  const chooseWinner = (id: string) => {
+    lifecycle.setTarget(TARGET.winner, id)
+    setQuotationId(id)
+  }
 
   // POST /comparisons/{number}/recommend → purchase.commercial-comparisons:submit.
   const canRecommend = can(PAGE_KEYS.comparisons, 'submit')
@@ -99,9 +112,7 @@ export function ComparisonDetailPage() {
   useEffect(() => {
     // A new comparison or company/login: forget everything shown or typed, and
     // make every in-flight read and write continuation moot.
-    scopeGate.current.reset()
-    loadGate.current.reset()
-    labelsGate.current.reset()
+    lifecycle.changeScope()
     recommendIntent.current.clear()
     setComparison(null)
     setQuotationId('')
@@ -115,7 +126,7 @@ export function ComparisonDetailPage() {
     setError(null)
     setNotice('')
     void load()
-  }, [load, scope])
+  }, [load, scope, lifecycle])
 
   useEffect(() => {
     const ticket = labelsGate.current.begin()
@@ -167,8 +178,9 @@ export function ComparisonDetailPage() {
       return
     }
     if (recommending) return
-    const live = scopeGate.current.snapshot()
-    const isLive = () => scopeGate.current.isCurrent(live)
+    // Live until unmount, a company/login/comparison change, or another winner is chosen.
+    lifecycle.setTarget(TARGET.winner, quotationId)
+    const isLive = lifecycle.begin(TARGET.winner)
     setRecommending(true)
     try {
       // Fresh read of the comparison first: a changed version stops for review,
@@ -220,8 +232,7 @@ export function ComparisonDetailPage() {
       setError(`Remarks are required to ${definition.label.toLowerCase()}.`)
       return
     }
-    const live = scopeGate.current.snapshot()
-    const isLive = () => scopeGate.current.isCurrent(live)
+    const isLive = lifecycle.begin()
     setBusy(definition.action)
     try {
       const result = await actOnComparison(comparison.ComparisonNumber, definition.action, {
@@ -381,7 +392,7 @@ export function ComparisonDetailPage() {
         <div className="form-grid">
           <label className="field field-wide">
             <span className="field-label">Winning vendor quotation *</span>
-            <select className="input" value={quotationId} onChange={(e) => setQuotationId(e.target.value)}>
+            <select className="input" value={quotationId} onChange={(e) => chooseWinner(e.target.value)}>
               <option value="">
                 {quotationChoices.length === 0 ? 'No technically compliant quotation on this comparison' : 'Choose the quotation to recommend'}
               </option>

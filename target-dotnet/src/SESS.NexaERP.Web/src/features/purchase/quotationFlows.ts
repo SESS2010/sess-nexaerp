@@ -346,10 +346,22 @@ export async function recommendFlow(args: {
   }
 }
 
+/** Invitation statuses that confirm an active invitation (Rev869BStatuses.Invitation). */
+export const ACTIVE_INVITATION_STATUSES = ['Issued', 'Submitted'] as const
+
+export function isActiveInvitationStatus(status: string): boolean {
+  return ACTIVE_INVITATION_STATUSES.some((active) => active.toUpperCase() === status.trim().toUpperCase())
+}
+
 export type InviteOutcome =
   | WriteOutcome<Rev869BDocumentResult>
-  /** The POST answer was lost but a fresh read shows the vendor invited. */
-  | { kind: 'reconciled' }
+  /** The POST answer was lost but a fresh read shows an active (Issued/Submitted) invitation. */
+  | { kind: 'reconciled'; status: string }
+  /**
+   * The POST answer was lost and the only invitation on file for this vendor is
+   * Withdrawn/Cancelled history: not a success, the key is kept, nothing retried.
+   */
+  | { kind: 'unresolved'; error: unknown; status: string }
 
 /**
  * Invite one vendor. An identical retry after a lost answer reuses the key; an
@@ -387,9 +399,15 @@ export async function inviteVendorFlow(args: {
         const rows = await api.listRfqInvitations()
         if (!isLive()) return { kind: 'abandoned' }
         const wanted = rfqNumber.trim().toUpperCase()
-        if (rows.some((row) => row.RfqNumber.toUpperCase() === wanted && row.VendorId === vendorId)) {
+        const matches = rows.filter((row) => row.RfqNumber.toUpperCase() === wanted && row.VendorId === vendorId)
+        const active = matches.find((row) => isActiveInvitationStatus(row.Status))
+        if (active) {
           intent.clear()
-          return { kind: 'reconciled' }
+          return { kind: 'reconciled', status: active.Status }
+        }
+        if (matches.length > 0) {
+          // Withdrawn / cancelled history only: unresolved, keep the key for an identical retry.
+          return { kind: 'unresolved', error, status: matches[0].Status }
         }
       } catch {
         // Could not confirm either way: keep the key so a retry is the same logical invite.

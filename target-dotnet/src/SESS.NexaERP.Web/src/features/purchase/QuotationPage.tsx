@@ -50,6 +50,7 @@ import {
 } from './quotationFlows'
 import type { QuotationHeaderForm, VerificationForm } from './quotationFlows'
 import { quotationFlowApi } from './quotationFlowApi'
+import { QuotationScreenController, ScreenLifecycle, TARGET } from './screenLifecycle'
 
 function num(value: string): number {
   return Number(value) || 0
@@ -106,15 +107,24 @@ export function QuotationPage() {
 
   // Company / login scope: a change clears every list, form value, selection,
   // pending key and busy flag, and makes every in-flight read or write moot.
+  // Unmount (navigation, logout) and a change of invitation / quotation / line
+  // do the same for the actions bound to them (screenLifecycle.ts).
   const scope = sessionScopeKey(me)
   const lastScope = useRef('')
-  const scopeGate = useRef(new RequestGate())
   const invitationGate = useRef(new RequestGate())
   const linesGate = useRef(new RequestGate())
   const pendingGate = useRef(new RequestGate())
   const verifyGate = useRef(new RequestGate())
+  const [screen] = useState(() => new QuotationScreenController(
+    new ScreenLifecycle().track(invitationGate.current, linesGate.current, pendingGate.current, verifyGate.current),
+  ))
   const submitIntent = useRef(new OperationIntent(() => newIdempotencyKey('quote-submit')))
   const verifyIntent = useRef(new OperationIntent(() => newIdempotencyKey('quote-verify')))
+
+  useEffect(() => {
+    screen.lifecycle.mount()
+    return () => screen.lifecycle.unmount()
+  }, [screen])
 
   // --- source invitation (GET /rfq-invitations; no ids are typed) ---
   const [invitations, setInvitations] = useState<RfqInvitationCandidate[]>([])
@@ -230,11 +240,8 @@ export function QuotationPage() {
   useEffect(() => {
     const previous = lastScope.current
     lastScope.current = scope
-    scopeGate.current.reset()
-    invitationGate.current.reset()
-    linesGate.current.reset()
-    pendingGate.current.reset()
-    verifyGate.current.reset()
+    // Drops in-flight actions and reads (all four gates) and the evidence owner.
+    screen.changeScope()
     submitIntent.current.clear()
     verifyIntent.current.clear()
     setInvitations([])
@@ -267,7 +274,38 @@ export function QuotationPage() {
       setVerifyForm({ ...emptyVerificationForm(), quotationNumber: urlQuotation })
       void loadVerifyQuotation(urlQuotation)
     }
-  }, [scope, urlQuotation, urlRfq, urlVendor, setParams, loadInvitations, loadQuotationRows, loadVerifyQuotation])
+  }, [scope, urlQuotation, urlRfq, urlVendor, setParams, loadInvitations, loadQuotationRows, loadVerifyQuotation, screen])
+
+  /**
+   * Choosing an invitation. A different invitation (vendor) resets every
+   * vendor-bound header/evidence value and the notices; re-choosing the same
+   * one keeps the typed draft.
+   */
+  const chooseInvitation = (id: string) => {
+    if (screen.pickInvitation(id)) {
+      setHeader(blankHeader())
+      setNotice('')
+      setError(null)
+      submitIntent.current.clear()
+    }
+    setInvitationId(id)
+  }
+
+  // Catch-all for selections not made through chooseInvitation (scope reset);
+  // pickInvitation is idempotent for the same id.
+  useEffect(() => {
+    if (screen.pickInvitation(invitationId)) {
+      setHeader(blankHeader())
+      setNotice('')
+      submitIntent.current.clear()
+    }
+  }, [invitationId, screen])
+
+  // The verification target is the quotation and the line; changing either
+  // drops an in-flight verification and its result reload.
+  useEffect(() => {
+    screen.pickVerification(verifyForm.quotationNumber, verifyForm.lineId)
+  }, [verifyForm.quotationNumber, verifyForm.lineId, screen])
 
   // ?rfq=RFQ-… preselects that RFQ's only invitation; ?vendor=CODE narrows to one vendor.
   useEffect(() => {
@@ -277,8 +315,8 @@ export function QuotationPage() {
     if (!rfqParam) return
     const matches = invitations.filter((row) =>
       row.RfqNumber.toUpperCase() === rfqParam && (!vendorParam || row.VendorCode.toUpperCase() === vendorParam))
-    if (matches.length === 1) setInvitationId(matches[0].InvitationId)
-  }, [invitations, invitationId, urlRfq, urlVendor])
+    if (matches.length === 1) chooseInvitation(matches[0].InvitationId)
+  }, [invitations, invitationId, urlRfq, urlVendor]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Choosing an invitation resets the draft and fills lines/currency from the server.
   // Keyed on the id only, so a refresh of the same invitation keeps typed rates.
@@ -319,6 +357,8 @@ export function QuotationPage() {
   }, [invitationId, reads.invitations, taxContextTick, scope])
 
   const chooseVerifyQuotation = (number: string) => {
+    // A different quotation drops an in-flight verification of the previous one.
+    screen.pickVerification(number, '')
     // Each quotation starts with a blank result, evidence and remarks.
     setVerifyForm({ ...emptyVerificationForm(), quotationNumber: number })
     void loadVerifyQuotation(number)
@@ -359,8 +399,8 @@ export function QuotationPage() {
       return
     }
 
-    const live = scopeGate.current.snapshot()
-    const isLive = () => scopeGate.current.isCurrent(live)
+    // Live until unmount, a company/login change, or another invitation is chosen.
+    const isLive = screen.submitIsLive()
     const reviewed = revisionIntent(invitation)
     const payloadLines: QuotationLineRequest[] = lines.map((line) => ({
       RequestForQuotationLineId: line.rfqLineId,
@@ -451,8 +491,9 @@ export function QuotationPage() {
       setError('Choose the quotation and the line being verified.')
       return
     }
-    const live = scopeGate.current.snapshot()
-    const isLive = () => scopeGate.current.isCurrent(live)
+    // Live until unmount, a company/login change, or another quotation or line is chosen.
+    screen.pickVerification(verifyForm.quotationNumber, verifyForm.lineId)
+    const isLive = screen.verifyIsLive()
     const number = verifyQuotation.QuotationNumber
     setVerifying(true)
     try {
@@ -487,13 +528,13 @@ export function QuotationPage() {
   const downloadAttachment = async () => {
     const number = verifyQuotation?.QuotationNumber ?? verifyForm.quotationNumber.trim()
     if (!number) return
-    const live = scopeGate.current.snapshot()
+    const isLive = screen.lifecycle.begin(TARGET.verification)
     try {
       const response = await authorizedFetch(quotationAttachmentUrl(number))
-      if (!scopeGate.current.isCurrent(live)) return
+      if (!isLive()) return
       await saveResponseAsFile(response, `${number}-quotation`)
     } catch (err) {
-      if (scopeGate.current.isCurrent(live)) setError(err)
+      if (isLive()) setError(err)
     }
   }
 
@@ -521,7 +562,7 @@ export function QuotationPage() {
                 className="input"
                 value={invitationId}
                 disabled={loadingInvitations}
-                onChange={(event) => setInvitationId(event.target.value)}
+                onChange={(event) => chooseInvitation(event.target.value)}
               >
                 <option value="">
                   {loadingInvitations
@@ -810,7 +851,10 @@ export function QuotationPage() {
               className="input"
               value={verifyForm.lineId}
               disabled={!verifyQuotation}
-              onChange={(e) => setVerifyForm((prev) => ({ ...prev, lineId: e.target.value }))}
+              onChange={(e) => {
+                screen.pickVerification(verifyForm.quotationNumber, e.target.value)
+                setVerifyForm((prev) => ({ ...prev, lineId: e.target.value }))
+              }}
             >
               <option value="">{verifyQuotation ? 'Choose the line being verified' : 'Load the quotation first'}</option>
               {verifyQuotation?.Lines.map((line) => (
