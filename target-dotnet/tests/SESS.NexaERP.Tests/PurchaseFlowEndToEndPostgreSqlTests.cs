@@ -877,8 +877,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             Assert.Equal(pr.Id, Assert.Single(stockQueue.Items).Id);
         }
         else
-            user.Set(purchaseId, "SESS-15", Rev869ARoleCodes.StoresExecutive,
-                Rev869ARoleCodes.PurchaseExecutive, Rev869ARoleCodes.PurchaseManager, Rev869ARoleCodes.StoresExecutive);
+            // The dedicated stores contract requires an actual seeded Stores role, not Purchase role claims.
+            user.Set(storesId, "SESS-35", Rev869ARoleCodes.StoresExecutive);
         var stockCheckDetail = await Get<StockCheckPurchaseRequisitionDetail>(prClient,
             $"/api/v1/stores/stock-check/requisitions/{pr.PrNumber}");
         Assert.Equal(pr.PrNumber, stockCheckDetail.PrNumber);
