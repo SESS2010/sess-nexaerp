@@ -4,6 +4,7 @@ import { confirmJobOrderAccounts, getFatReadiness, getJobOrder, getJobOrderHisto
 import { newIdempotencyKey } from '../../api/stores'
 import type { JobOrderHistoryView, JobOrderView } from '../../types/production'
 import { StatusBadge } from '../employees/StatusBadge'
+import { CopyId } from '../../components/CopyId'
 import { ErrorAlert } from '../../components/ErrorAlert'
 import { PAGE_KEYS, useSession } from '../auth/SessionContext'
 import { ActualBomPanel } from './ActualBomPanel'
@@ -182,7 +183,7 @@ export function JobOrderDetailPage() {
         <div><span className="field-label">Machine item</span> <span className="mono">{job.MachineItemCode}</span></div>
         <div><span className="field-label">Job order date</span> {job.JobOrderDate}</div>
         <div><span className="field-label">Planned completion</span> {job.PlannedCompletionDate ?? '—'}</div>
-        <div><span className="field-label">Initiated by</span> <span className="mono">{isInitiator ? `${me?.EmployeeCode} (you)` : job.InitiatedByEmployeeId}</span> · {job.InitiatedActorRoleCode}</div>
+        <div><span className="field-label">Initiated by</span> {isInitiator ? <span className="mono">{`${me?.EmployeeCode} (you)`}</span> : <CopyId label="Employee id" value={job.InitiatedByEmployeeId} />} · {job.InitiatedActorRoleCode}</div>
         <div>
           <span className="field-label">Accounts confirmation</span>
           {job.AccountsConfirmedAt
@@ -230,7 +231,7 @@ export function JobOrderDetailPage() {
                   <td>{row.Action.replaceAll('_', ' ')}</td>
                   <td>{row.FromStatus ? <StatusBadge value={row.FromStatus} /> : '—'}</td>
                   <td><StatusBadge value={row.ToStatus} /></td>
-                  <td><span className="mono">{row.ActorEmployeeId === me?.EmployeeId ? `${me?.EmployeeCode} (you)` : row.ActorEmployeeId}</span> · {row.ActorRoleCode} ({row.ResolvedRoleAssignmentType})</td>
+                  <td>{row.ActorEmployeeId === me?.EmployeeId ? <span className="mono">{`${me?.EmployeeCode} (you)`}</span> : <CopyId label="Employee id" value={row.ActorEmployeeId} />} · {row.ActorRoleCode} ({row.ResolvedRoleAssignmentType})</td>
                   <td>{row.Remarks}</td>
                 </tr>
               ))}

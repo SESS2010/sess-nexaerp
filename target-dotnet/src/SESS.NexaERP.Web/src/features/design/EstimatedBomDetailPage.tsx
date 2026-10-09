@@ -11,6 +11,7 @@ import type { BomTransition } from '../../api/boms'
 import { newIdempotencyKey } from '../../api/stores'
 import type { EstimatedBomHistoryView, EstimatedBomView } from '../../types/bom'
 import { StatusBadge } from '../employees/StatusBadge'
+import { CopyId } from '../../components/CopyId'
 import { ErrorAlert } from '../../components/ErrorAlert'
 import { PAGE_KEYS, useSession } from '../auth/SessionContext'
 import { BomLinesEditorModal, editorLine } from './BomLinesEditorModal'
@@ -157,7 +158,7 @@ export function EstimatedBomDetailPage() {
       )}
 
       <div className="detail-grid">
-        <div><span className="field-label">Prepared by</span> <span className="mono">{isPreparer ? `${me?.EmployeeCode} (you)` : revision.PreparedByEmployeeId}</span></div>
+        <div><span className="field-label">Prepared by</span> {isPreparer ? <span className="mono">{`${me?.EmployeeCode} (you)`}</span> : <CopyId label="Employee id" value={revision.PreparedByEmployeeId} />}</div>
         <div><span className="field-label">Submitted</span> {revision.SubmittedAt ? new Date(revision.SubmittedAt).toLocaleString() : '—'}</div>
         <div><span className="field-label">Approved</span> {revision.ApprovedAt ? <>{new Date(revision.ApprovedAt).toLocaleString()}<span className="field-hint">{revision.ApprovalReason}</span></> : '—'}</div>
         <div><span className="field-label">Approved revision</span> {bom.ApprovedRevisionId ? (bom.ApprovedRevisionId === revision.Id ? 'this one' : 'an earlier revision') : '—'}</div>
@@ -237,7 +238,7 @@ export function EstimatedBomDetailPage() {
                   <td>{row.Action}</td>
                   <td>{row.FromStatus ? <StatusBadge value={row.FromStatus} /> : '—'}</td>
                   <td><StatusBadge value={row.ToStatus} /></td>
-                  <td><span className="mono">{row.ActorEmployeeId === me?.EmployeeId ? `${me?.EmployeeCode} (you)` : row.ActorEmployeeId}</span> · {row.ActorRoleCode}</td>
+                  <td>{row.ActorEmployeeId === me?.EmployeeId ? <span className="mono">{`${me?.EmployeeCode} (you)`}</span> : <CopyId label="Employee id" value={row.ActorEmployeeId} />} · {row.ActorRoleCode}</td>
                   <td>{row.Remarks}</td>
                 </tr>
               ))}

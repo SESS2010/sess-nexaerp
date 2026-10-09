@@ -13,6 +13,7 @@ import { AddableSelect } from '../../components/AddableSelect'
 import { CustomerSearchSelect } from '../../components/CustomerSearchSelect'
 import type { CustomerPoDetail, CustomerPoLookups, UpsertCustomerPoRequest } from '../../types/customerPo'
 import { ErrorAlert } from '../../components/ErrorAlert'
+import { CopyId } from '../../components/CopyId'
 import { PAGE_KEYS, useSession } from '../auth/SessionContext'
 
 interface Props {
@@ -407,7 +408,7 @@ export function CustomerPoFormModal({ mode, existing, onClose, onSaved }: Props)
                       <td>
                         {line.itemId ? (
                           <div>
-                            <span className="mono">{line.itemCode || line.itemId.slice(0, 8)}</span>
+                            {line.itemCode ? <span className="mono">{line.itemCode}</span> : <>Item linked <CopyId label="Item id" value={line.itemId} /></>}
                             {canSave && (
                               <button type="button" className="btn btn-ghost" style={{ marginLeft: 6 }} onClick={() => setLines((prev) => prev.map((row, i) => (i === index ? { ...row, itemId: '', itemCode: '', uomId: '' } : row)))}>change</button>
                             )}

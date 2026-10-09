@@ -12,6 +12,7 @@ import { getJobOrder } from '../../api/production'
 import { newIdempotencyKey } from '../../api/stores'
 import type { ProductionBomView } from '../../types/bom'
 import { StatusBadge } from '../employees/StatusBadge'
+import { CopyId } from '../../components/CopyId'
 import { ErrorAlert } from '../../components/ErrorAlert'
 import { PAGE_KEYS, useSession } from '../auth/SessionContext'
 import { BomLinesEditorModal, editorLine } from '../design/BomLinesEditorModal'
@@ -157,10 +158,10 @@ export function ProductionBomDetailPage() {
       )}
 
       <div className="detail-grid">
-        <div><span className="field-label">Prepared by</span> <span className="mono">{isPreparer ? `${me?.EmployeeCode} (you)` : revision.PreparedByEmployeeId}</span></div>
+        <div><span className="field-label">Prepared by</span> {isPreparer ? <span className="mono">{`${me?.EmployeeCode} (you)`}</span> : <CopyId label="Employee id" value={revision.PreparedByEmployeeId} />}</div>
         <div><span className="field-label">Submitted</span> {revision.SubmittedAt ? new Date(revision.SubmittedAt).toLocaleString() : '—'}</div>
         <div><span className="field-label">Approved</span> {revision.ApprovedAt ? <>{new Date(revision.ApprovedAt).toLocaleString()}<span className="field-hint">{revision.ApprovalReason}</span></> : '—'}</div>
-        <div><span className="field-label">Source</span> Estimated BOM revision <span className="mono">{revision.SourceEstimatedBomRevisionId.slice(0, 8)}…</span></div>
+        <div><span className="field-label">Source</span> Estimated BOM revision <CopyId label="Revision id" value={revision.SourceEstimatedBomRevisionId} /></div>
         <div><span className="field-label">Supersedes</span> {revision.SupersedesRevisionId ? `revision ${revision.RevisionNumber - 1}` : '—'}</div>
         <div><span className="field-label">Version</span> <span className="mono">{bom.Version} / rev {revision.Version}</span></div>
       </div>

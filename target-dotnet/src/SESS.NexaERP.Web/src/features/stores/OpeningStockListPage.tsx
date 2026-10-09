@@ -4,6 +4,7 @@ import { listOpeningStock, recordOpeningStockCount, type OpeningStockView } from
 import { newIdempotencyKey } from '../../api/stores'
 import type { ImportResult } from '../../api/masterdata'
 import { ImportExportBar } from '../../components/ImportExportBar'
+import { CopyId } from '../../components/CopyId'
 import { ErrorAlert } from '../../components/ErrorAlert'
 import { StatusBadge } from '../employees/StatusBadge'
 import { useSession, PAGE_KEYS } from '../auth/SessionContext'
@@ -118,7 +119,7 @@ export function OpeningStockListPage() {
           <ImportExportBar masterKey="opening-stock" exportable={false} onImported={onImported} />
           {lastImport && !importUsable && (
             <div className="alert alert-warn" style={{ marginTop: 12 }}>
-              Batch <span className="mono">{lastImport.BatchId.slice(0, 8)}</span> has {lastImport.RejectedRows} rejected row(s)
+              Batch <CopyId value={lastImport.BatchId} /> has {lastImport.RejectedRows} rejected row(s)
               {lastImport.CreatedRows === 0 ? ' and created nothing' : ''}, so the server will refuse it. Download errors.xlsx, correct, and upload again.
             </div>
           )}

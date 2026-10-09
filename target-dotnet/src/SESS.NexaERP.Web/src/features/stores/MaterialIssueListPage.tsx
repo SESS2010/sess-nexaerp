@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { listOutstandingCustody } from '../../api/materialIssues'
 import type { OutstandingEngineerCustodyView } from '../../types/materialIssue'
 import { StatusBadge } from '../employees/StatusBadge'
+import { CopyId } from '../../components/CopyId'
 import { ErrorAlert } from '../../components/ErrorAlert'
 import { useSession } from '../auth/SessionContext'
 
@@ -69,7 +70,7 @@ export function MaterialIssueListPage() {
               <tr key={row.MaterialIssueId} className="row-click" onClick={() => navigate(`/stores/material-issues/${row.MaterialIssueId}`)}>
                 <td className="mono">{row.IssueNumber}</td>
                 <td className="mono">{row.EmployeeId === me?.EmployeeId ? `${row.EmployeeCode} (you)` : row.EmployeeCode}</td>
-                <td className="mono">{row.JobOrderId ? row.JobOrderId.slice(0, 8) + '…' : '—'}</td>
+                <td>{row.JobOrderId ? <CopyId value={row.JobOrderId} /> : '—'}</td>
                 <td>{new Date(row.IssuedAt).toLocaleString()}</td>
                 <td>{new Date(row.ReturnDueAt).toLocaleString()}</td>
                 <td className="text-right mono">{row.QuantityBase}</td>

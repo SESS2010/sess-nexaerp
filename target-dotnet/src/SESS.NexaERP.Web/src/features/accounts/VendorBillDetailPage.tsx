@@ -7,6 +7,7 @@ import type { VendorBillView } from '../../types/vendorBill'
 import type { GoodsReceiptResult } from '../../types/goodsReceipt'
 import { StatusBadge } from '../employees/StatusBadge'
 import { ErrorAlert } from '../../components/ErrorAlert'
+import { CopyId } from '../../components/CopyId'
 import { HistoryPanel } from '../../components/HistoryPanel'
 import { useSession, PAGE_KEYS } from '../auth/SessionContext'
 import { formatAmount } from '../purchase/PurchaseRequisitionListPage'
@@ -97,7 +98,7 @@ export function VendorBillDetailPage() {
         <div>
           <h1 className="mono">{bill.BillNumber}</h1>
           <p className="page-sub">
-            Bill dated {bill.BillDate} against {grn ? <Link to={`/stores/goods-receipts/${grn.Id}`} className="mono">{grn.GrnNumber}</Link> : <span className="mono">{bill.GoodsReceiptId.slice(0, 8)}…</span>}
+            Bill dated {bill.BillDate} against {grn ? <Link to={`/stores/goods-receipts/${grn.Id}`} className="mono">{grn.GrnNumber}</Link> : <>a goods receipt not available to you <CopyId label="GRN id" value={bill.GoodsReceiptId} /></>}
             {grn && <> · {grn.VendorName} · PO <span className="mono">{grn.PurchaseOrderNumber}</span></>}
           </p>
         </div>
@@ -134,7 +135,7 @@ export function VendorBillDetailPage() {
               return (
                 <tr key={line.Id}>
                   <td className="mono">{line.LineNumber}</td>
-                  <td>{grnLine ? <><span className="mono">{grnLine.ItemCode}</span> — {grnLine.ItemName}</> : <span className="mono">{line.ItemId.slice(0, 8)}…</span>}</td>
+                  <td>{grnLine ? <><span className="mono">{grnLine.ItemCode}</span> — {grnLine.ItemName}</> : <>Item not available <CopyId label="Item id" value={line.ItemId} /></>}</td>
                   <td className="text-right mono">{line.BilledQuantity}{grnLine ? ` ${grnLine.Uom}` : ''}</td>
                   <td className="text-right mono">{formatAmount(line.ExpectedUnitRate)}</td>
                   <td className="text-right mono">{formatAmount(line.BilledUnitRate)}</td>

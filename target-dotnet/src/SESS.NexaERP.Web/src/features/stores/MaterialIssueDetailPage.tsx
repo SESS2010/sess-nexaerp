@@ -148,7 +148,7 @@ export function MaterialIssueDetailPage() {
           <h1 className="mono">{issue.IssueNumber}</h1>
           <p className="page-sub">
             Against <a className="row-click mono" onClick={() => navigate(`/stores/material-issue-requests/${issue.MaterialIssueRequestId}`)}>{mir?.RequestNumber ?? issue.MaterialIssueRequestId}</a>
-            {issue.JobOrderId ? <> · job order <a className="row-click mono" onClick={() => navigate(`/production/job-orders/${issue.JobOrderId}`)}>{issue.JobOrderId.slice(0, 8)}…</a></> : null}
+            {issue.JobOrderId ? <> · job order <a className="row-click mono" onClick={() => navigate(`/production/job-orders/${issue.JobOrderId}`)}>open</a> <CopyId label="Job order id" value={issue.JobOrderId} /></> : null}
           </p>
         </div>
         <div className="action-row">
@@ -194,7 +194,7 @@ export function MaterialIssueDetailPage() {
                 <td className="text-right mono">{acceptedReturned.get(row.line.Id) ?? 0}</td>
                 <td className="text-right mono">{fittedByLine.get(row.line.Id) ?? 0}</td>
                 <td className="text-right mono">{row.outstanding}</td>
-                <td className="mono">{row.line.StoredSerialNumber ?? (row.line.InventorySerialId ? row.line.InventorySerialId.slice(0, 8) + '…' : '—')}</td>
+                <td className="mono">{row.line.StoredSerialNumber ?? (row.line.InventorySerialId ? <>Serial number not recorded <CopyId label="Serial id" value={row.line.InventorySerialId} /></> : '—')}</td>
                 <td><CopyId label="Location id" value={row.line.WarehouseConditionLocationId} /></td>
               </tr>
             ))}
