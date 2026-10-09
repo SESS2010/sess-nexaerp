@@ -15,7 +15,7 @@ public static partial class PurchaseRequisitionEndpoints
 
     private static async Task<IResult> StockCheck(string prNumber, StockCheckRequest request, NexaErpDbContext db, ICurrentUser user, IAuditWriter audit, CancellationToken ct)
     {
-        var pr = await Scope(IncludeDetail(db.PurchaseRequisitions), user, db).SingleOrDefaultAsync(x => x.PrNumber == NormalizePr(prNumber), ct);
+        var pr = await SESS.NexaERP.Infrastructure.Authorization.PurchaseActorScope.StockRequisitions(IncludeDetail(db.PurchaseRequisitions), db, user).SingleOrDefaultAsync(x => x.PrNumber == NormalizePr(prNumber), ct);
         if (pr is null) return Results.NotFound(new { message = "Purchase requisition not found." });
         if (pr.Status != PurchaseRequisitionStatuses.StockCheckPending) return Results.Conflict(new { message = "Stock check is allowed only after PR approval." });
         if (request.Version != pr.Version) return Results.Conflict(new { message = "Stale record version. Refresh and retry." });
@@ -39,6 +39,12 @@ public static partial class PurchaseRequisitionEndpoints
             {
                 return Results.BadRequest(new { message = ex.Message });
             }
+            var actorScopes = await SESS.NexaERP.Infrastructure.Authorization.PurchaseActorScope.ActiveScopes(db, user, DateOnly.FromDateTime(DateTime.UtcNow)).ToListAsync(ct);
+            if (locations.Any(location => !actorScopes.Any(scope =>
+                (!scope.WarehouseId.HasValue || scope.WarehouseId == location.WarehouseId) &&
+                (!scope.RackBinId.HasValue || scope.RackBinId == location.RackBinId) &&
+                (!scope.OwnRecordsOnly || pr.RequesterEmployeeId == user.EmployeeId))))
+                return Results.Forbid();
             if (locations.Count == 0) return Results.BadRequest(new { message = $"Line {line.LineNumber}: at least one active stock-check warehouse is required." });
             var checkedAt = DateTimeOffset.UtcNow;
             var totalOnHand = 0m;

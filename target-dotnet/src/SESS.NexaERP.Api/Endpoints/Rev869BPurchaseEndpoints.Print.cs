@@ -22,10 +22,9 @@ public static partial class Rev869BPurchaseEndpoints
     private static async Task<IResult> PrintPo(string number, NexaErpDbContext db, ICurrentUser user, IRecordScopeAuthorizer scopes,
         IPagePermissionService permissions, [Microsoft.AspNetCore.Mvc.FromServices] IPurchaseOrderPrintQuery print, IAuditWriter audit, CancellationToken ct)
     {
-        var row = await db.PurchaseOrders.AsNoTracking()
+        var row = await ScopePurchaseOrders(db.PurchaseOrders.AsNoTracking(), db, user)
             .SingleOrDefaultAsync(x => x.OrganizationId == user.OrganizationId && x.PoNumber == number.Trim().ToUpper() && x.IsCurrentVersion, ct);
         if (row is null) return await Missing(audit, "purchase.po", number, user, ct);
-        if (!await Allowed(user, scopes, row.OrganizationId, row.RequestingDepartmentId, row.DeliveryWarehouseId, row.OwnerEmployeeId, ct)) return await Denied(audit, "purchase.po", number, user, ct);
         if (!await permissions.HasPermissionAsync(user.RoleCodes, "purchase.po", PagePermissionActions.ViewCommercialValues, ct))
             return await Denied(audit, "purchase.po", number, user, ct);
         if (!PrintablePoStatuses.Contains(row.Status))

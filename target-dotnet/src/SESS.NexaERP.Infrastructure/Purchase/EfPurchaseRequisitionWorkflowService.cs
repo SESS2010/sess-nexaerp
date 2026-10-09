@@ -62,6 +62,9 @@ public sealed class EfPurchaseRequisitionWorkflowService(
                 new { pr.Status }, new { reason = ex.Message, user.RoleCodes }, ct);
             throw;
         }
+        if (!await SESS.NexaERP.Infrastructure.Authorization.PurchaseActorScope.AllowsAssignedDecisionAsync(
+            db, user, pr.CompanyId, pr.DeliveryWarehouseId, pr.RequesterEmployeeId, ct))
+            throw new UnauthorizedAccessException("Assigned PR approver is outside active company/warehouse authority.");
         var correlation = Correlation(request, action.ToUpperInvariant());
         if (await db.PurchaseRequisitionApprovalHistories.AnyAsync(x => x.PurchaseRequisitionId == pr.Id && x.CorrelationId == correlation, ct))
             throw new Rev869BConflictException("The approval decision was already recorded.");
