@@ -7,6 +7,7 @@ using SESS.NexaERP.Application.Inventory;
 using SESS.NexaERP.Application.Purchase;
 using SESS.NexaERP.Domain.Purchase;
 using SESS.NexaERP.Infrastructure.Persistence;
+using SESS.NexaERP.Infrastructure.Authorization;
 
 namespace SESS.NexaERP.Api.Endpoints;
 
@@ -92,10 +93,10 @@ public static partial class PurchaseRequisitionEndpoints
         {
             var organizationId = user.OrganizationId;
             if (string.IsNullOrWhiteSpace(organizationId)) return Results.NotFound(new { message = "Purchase requisition not found." });
-            var pr = await db.PurchaseRequisitions.AsNoTracking()
-                .Where(x => x.OrganizationId == organizationId &&
-                    x.Status == PurchaseRequisitionStatuses.StockCheckPending &&
-                    x.PrNumber == NormalizePr(prNumber))
+            var pr = await PurchaseActorScope.StockRequisitions(db.PurchaseRequisitions.AsNoTracking(), db, user)
+                .Where(x => x.OrganizationId == organizationId && (x.Status == PurchaseRequisitionStatuses.StockCheckPending ||
+                    x.Status == PurchaseRequisitionStatuses.FullyAvailable || x.Status == PurchaseRequisitionStatuses.PartiallyAvailable ||
+                    x.Status == PurchaseRequisitionStatuses.NotAvailable) && x.PrNumber == NormalizePr(prNumber))
                 .Select(x => new StockCheckPurchaseRequisitionDetail(
                     x.PrNumber,
                     x.Status,
@@ -106,14 +107,17 @@ public static partial class PurchaseRequisitionEndpoints
                         line.ItemCodeSnapshot,
                         line.ItemNameSnapshot,
                         line.UomSnapshot,
-                        line.RequestedQuantity)).ToList()))
+                        line.RequestedQuantity, line.OnHandSnapshot, line.ActiveReservedSnapshot, line.AvailableSnapshot,
+                        line.ReservedQuantity, line.ShortageQuantity, line.ProcurementHandoffQuantity, line.LineStatus)).ToList(),
+                    x.RequestingDepartment != null ? x.RequestingDepartment.Name : string.Empty,
+                    x.RequesterEmployee != null ? x.RequesterEmployee.EmployeeCode : string.Empty, x.RequiredByDate))
                 .SingleOrDefaultAsync(ct);
             return pr is null ? Results.NotFound(new { message = "Purchase requisition not found." }) : Results.Ok(pr);
         }).RequirePagePermission(PageStockCheck, PagePermissionActions.Verify);
 
         group.MapGet("/{prNumber}", async (string prNumber, NexaErpDbContext db, ICurrentUser user, CancellationToken ct) =>
         {
-            var pr = await Scope(IncludeDetail(db.PurchaseRequisitions.AsNoTracking()), user, db).SingleOrDefaultAsync(x => x.PrNumber == NormalizePr(prNumber), ct);
+            var pr = await ReadScope(IncludeDetail(db.PurchaseRequisitions.AsNoTracking()), user, db).SingleOrDefaultAsync(x => x.PrNumber == NormalizePr(prNumber), ct);
             return pr is null ? Results.NotFound(new { message = "Purchase requisition not found." }) : Results.Ok(ToDetail(pr));
         }).RequirePagePermission(PageRequisitions, PagePermissionActions.View);
 
@@ -167,9 +171,10 @@ public static partial class PurchaseRequisitionEndpoints
         CancellationToken ct)
     {
         var p = MasterEndpointHelpers.NormalizePaging(page, pageSize);
-        var q = Scope(db.PurchaseRequisitions.AsNoTracking()
-            .Include(x => x.RequestingDepartment)
-            .Include(x => x.RequesterEmployee), user, db);
+        var baseQuery = db.PurchaseRequisitions.AsNoTracking().Include(x => x.RequestingDepartment).Include(x => x.RequesterEmployee);
+        var q = stockCheckPendingOnly
+            ? PurchaseActorScope.StockRequisitions(baseQuery, db, user)
+            : ReadScope(baseQuery, user, db);
         if (stockCheckPendingOnly)
             q = q.Where(x => x.Status == PurchaseRequisitionStatuses.StockCheckPending);
         if (!string.IsNullOrWhiteSpace(search))

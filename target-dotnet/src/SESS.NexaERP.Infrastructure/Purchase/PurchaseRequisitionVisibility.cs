@@ -11,7 +11,8 @@ public static class PurchaseRequisitionVisibility
     public static IQueryable<PurchaseRequisition> Apply(
         IQueryable<PurchaseRequisition> query,
         ICurrentUser user,
-        NexaErpDbContext db)
+        NexaErpDbContext db,
+        bool includeAssignedApprover = true)
     {
         if (!user.IsAuthenticated || !user.EmployeeId.HasValue || string.IsNullOrWhiteSpace(user.OrganizationId))
             return query.Where(_ => false);
@@ -30,7 +31,7 @@ public static class PurchaseRequisitionVisibility
         return query.Where(pr =>
             pr.RequesterEmployeeId == employeeId ||
             pr.CreatorEmployeeId == employeeId ||
-            pr.ApprovalCycle > 0 && pr.CompletedApprovalStepCount < pr.RequiredApprovalStepCount &&
+            includeAssignedApprover && pr.ApprovalCycle > 0 && pr.CompletedApprovalStepCount < pr.RequiredApprovalStepCount &&
                 EF.Functions.JsonContains(pr.ApprovalWorkflowSnapshotJson, assignedApprovalStep) ||
             scopes.Any(scope =>
                 (!scope.DepartmentId.HasValue || scope.DepartmentId == pr.RequestingDepartmentId) &&

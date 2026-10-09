@@ -207,6 +207,12 @@ public sealed partial class EfRev869BPurchaseService : IRev869BPurchaseService
     private Task AuthorizePoAsync(Guid actor, PurchaseOrder po, CancellationToken ct) => po.OrganizationId == RequireOrganization()
         ? RequireScopeAsync(actor, po.OrganizationId, po.RequestingDepartmentId, po.DeliveryWarehouseId, null, po.OwnerEmployeeId, ct)
         : throw new UnauthorizedAccessException("Cross-organization purchase-order access is prohibited.");
+    private async Task RequireAssignedDecisionScopeAsync(Guid companyId, Guid? warehouse, Guid? owner, CancellationToken ct)
+    {
+        if (!await SESS.NexaERP.Infrastructure.Authorization.PurchaseActorScope.AllowsAssignedDecisionAsync(db, user, companyId, warehouse, owner, ct))
+            throw new UnauthorizedAccessException("Assigned approval actor is outside active company/warehouse authority.");
+    }
+
     private async Task RequireScopeAsync(Guid actor, string organization, Guid? department, Guid? warehouse, Guid? rackBin, Guid? owner, CancellationToken ct)
     {
         var actingRole = CurrentActorRole();
