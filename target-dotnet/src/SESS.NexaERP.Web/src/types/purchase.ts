@@ -363,9 +363,64 @@ export interface ApprovalActionRequest {
   IdempotencyKey: string
 }
 
+/** GET /purchase/rfq-invitations — one row per vendor invited to an RFQ in scope. */
+export interface RfqInvitationLineCandidate {
+  RequestForQuotationLineId: string
+  LineNumber: number
+  ItemId: string
+  ItemCode: string
+  ItemName: string
+  Uom: string
+  Quantity: number
+}
+
+export interface RfqInvitationCandidate {
+  InvitationId: string
+  InvitationVersion: number
+  RfqNumber: string
+  VendorId: string
+  VendorCode: string
+  VendorName: string
+  CurrencyCode: string
+  QuoteDueAt: string
+  Status: string
+  /** Version of the current quotation for this invitation; null before the first one. */
+  CurrentQuotationVersion: number | null
+  Lines: RfqInvitationLineCandidate[]
+}
+
+/** GET /purchase/quotations/{number} — current revision; commercial fields are masked for some roles. */
+export interface QuotationDetailLine {
+  Id: string
+  LineNumber: number
+  Quantity: number
+  RequestForQuotationLineId: string
+  ItemCode: string
+  ItemName: string
+  Specification?: string | null
+  HsnSacCode?: string | null
+  TotalPayableValue?: number
+}
+
+export interface QuotationDetail {
+  Id: string
+  QuotationNumber: string
+  RfqNumber: string
+  VendorId: string
+  VendorCode: string
+  VendorName: string
+  RevisionNumber: number
+  Status: string
+  TotalPayableValue?: number
+  Version: number
+  Lines: QuotationDetailLine[]
+}
+
 export interface ComparisonLine {
   Id: string
   VendorQuotationLineId: string
+  /** Parent quotation of the line (returned by GET /comparisons/{number}). */
+  VendorQuotationId: string
   VendorId?: string
   TechnicalComplianceSnapshot: string
   CommercialSnapshotJson?: string

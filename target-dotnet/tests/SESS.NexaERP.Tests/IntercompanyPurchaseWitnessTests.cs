@@ -195,7 +195,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             count.CommandText = "SELECT count(*) FROM advance.intercompany_purchase_publications";
             Assert.Equal(1L,await count.ExecuteScalarAsync());
             publications++;
-            user.Set(context.PurchaseId,"SESS-15","PURCHASE_MANAGER","PURCHASE_EXECUTIVE","PURCHASE_MANAGER","STORES_EXECUTIVE");
+            user.Set(context.PurchaseId,"SESS-15","PURCHASE_MANAGER","PURCHASE_EXECUTIVE","PURCHASE_MANAGER");
         });
         Assert.Equal(1,publications);
     }

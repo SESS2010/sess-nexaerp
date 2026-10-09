@@ -15,6 +15,10 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
     {
         // The later import-owner migration now owns Purchase Manager's vendor row.
         // Prove the predecessor's guarded rollback at its own starting state, then restore the owner grants.
+        const string vendorWorkflow = "20261006150000_R1VendorOwnerWorkflowGrants";
+        var workflowIndex = Array.IndexOf(migrations, vendorWorkflow);
+        if (workflowIndex > 0)
+            server.Execute("required-read-vendor-workflow-down.sql", migrator.GenerateScript(vendorWorkflow, migrations[workflowIndex - 1]));
         const string ownerGrants = "20261002090000_R1MasterImportOwnerGrants";
         var ownerIndex = Array.IndexOf(migrations, ownerGrants);
         if (ownerIndex > 0)
@@ -49,6 +53,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         server.Execute("required-read-final-up.sql", up);
         if (ownerIndex > 0)
             server.Execute("required-read-owner-up.sql", migrator.GenerateScript(migrations[ownerIndex - 1], ownerGrants));
+        if (workflowIndex > 0)
+            server.Execute("required-read-vendor-workflow-up.sql", migrator.GenerateScript(migrations[workflowIndex - 1], vendorWorkflow));
     }
 
     private static async Task ProveRequiredActorLookups(HttpClient client, DbContextOptions<NexaErpDbContext> options, TaxWorkflowUser user, Guid purchaseId, Guid tdId)

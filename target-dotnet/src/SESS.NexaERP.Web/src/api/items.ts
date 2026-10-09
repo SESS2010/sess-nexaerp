@@ -46,8 +46,11 @@ export function updateItem(itemCode: string, body: UpsertItemRequest): Promise<I
   return api.put<ItemDetail>(`${BASE}/${encodeURIComponent(itemCode)}`, body)
 }
 
-export function runItemAction(itemCode: string, action: ItemAction, remarks: string, version: number) {
-  return api.post<unknown>(`${BASE}/${encodeURIComponent(itemCode)}/${action}`, { Remarks: remarks, Version: version })
+export function runItemAction(itemCode: string, action: ItemAction, remarks: string, version: number, operationKey?: string) {
+  // Approve requires an Idempotency-Key header (InventoryEndpoints.MapItemApprove); one key per
+  // logical action. Callers retain it on identical retries; stale versions still return 409.
+  const headers = action === 'approve' ? { 'Idempotency-Key': operationKey ?? `item-approve-${crypto.randomUUID()}` } : undefined
+  return api.post<unknown>(`${BASE}/${encodeURIComponent(itemCode)}/${action}`, { Remarks: remarks, Version: version }, headers)
 }
 
 export function getItemVendors(itemCode: string): Promise<ItemVendorLink[]> {

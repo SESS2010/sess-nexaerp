@@ -28,6 +28,8 @@ import type {
   RecommendComparisonRequest,
   SubmitQuotationRequest,
   QuotationTaxContext,
+  QuotationDetail,
+  RfqInvitationCandidate,
   TechnicalVerificationRequest,
   RfqListItem,
   QuotationListItem,
@@ -281,6 +283,16 @@ export function getQuotationTaxContext(invitationId: string): Promise<QuotationT
   return api.get<QuotationTaxContext>(
     `/api/v1/purchase/rfq-invitations/${encodeURIComponent(invitationId)}/tax-context`,
   )
+}
+
+/** GET /rfq-invitations → purchase.vendor-quotations:create. Invitations in the caller's RFQ scope. */
+export function listRfqInvitations(): Promise<RfqInvitationCandidate[]> {
+  return api.get<RfqInvitationCandidate[]>('/api/v1/purchase/rfq-invitations')
+}
+
+/** GET /quotations/{number} → purchase.vendor-quotations:view. Current revision with line ids. */
+export function getQuotation(quotationNumber: string): Promise<QuotationDetail> {
+  return api.get<QuotationDetail>(`/api/v1/purchase/quotations/${encodeURIComponent(quotationNumber)}`)
 }
 
 export function submitQuotation(

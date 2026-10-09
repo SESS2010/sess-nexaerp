@@ -40,8 +40,20 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             }
         });
 
+    [Theory]
+    [InlineData(2026, 10, 10)]
+    [InlineData(2026, 10, 15)]
+    public Task ElevenUsersRetainAllCommandsAfterR1RosterCutoff(int year, int month, int day) =>
+        RunCompletePurchaseFlow(rosterSupportFixture: true,
+            mixedRun: context => RunElevenUserCommands(context, new DateTimeOffset(year, month, day, 12, 0, 0, TimeSpan.Zero)));
+
 #endif
-    private static async Task RunElevenUserCommands(MixedRunContext context)
+    private sealed class MixedRunClock(DateTimeOffset now) : IDateTimeProvider
+    {
+        public DateTimeOffset UtcNow => now;
+    }
+
+    private static async Task RunElevenUserCommands(MixedRunContext context, DateTimeOffset? effectiveNow = null)
     {
         // Copy only the disposable random-port fixture. Its completed three-band
         // witness remains untouched; all pending business documents below use APIs.
@@ -90,10 +102,39 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             await db.SaveChangesAsync();
             return 0;
         });
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var eventNow = DateTimeOffset.UtcNow;
+        var eventDate = DateOnly.FromDateTime(eventNow.UtcDateTime);
+        var now = effectiveNow ?? eventNow;
+        var today = DateOnly.FromDateTime(now.UtcDateTime);
+        // Extra setup actor is not part of the eleven simultaneous command users.
+        employees.Add("SESS-28", await Query(options, db => db.Employees
+            .Where(x => x.EmployeeCode == "SESS-28").Select(x => x.Id).SingleAsync()));
+        await Query(options, async db =>
+        {
+            var ids = employees.Values.ToArray();
+            await db.Employees.Where(x => ids.Contains(x.Id)).ExecuteUpdateAsync(x => x.SetProperty(e => e.LoginEnabled, true));
+            foreach (var (code, id) in employees)
+                if (!await db.EmployeeIdentityMappings.AnyAsync(x => x.CompanyId == company && x.EmployeeId == id && x.IsActive))
+                    db.EmployeeIdentityMappings.Add(Mapping(company, id, code));
+            var departmentId = await db.Departments.Where(x => x.Code == "IT").Select(x => x.Id).SingleAsync();
+            var warehouseId = await db.Warehouses.Where(x => x.WarehouseCode == "TRIAL-WH-C01").Select(x => x.Id).SingleAsync();
+            foreach (var code in new[] { "SESS-15", "SESS-28" })
+                if (!await db.EmployeeOperationalScopes.AnyAsync(x => x.CompanyId == company && x.EmployeeId == employees[code]
+                    && x.DepartmentId == departmentId && x.WarehouseId == warehouseId && x.IsActive))
+                    db.EmployeeOperationalScopes.Add(new SESS.NexaERP.Domain.Authorization.EmployeeOperationalScope
+                    {
+                        CompanyId = company, OrganizationId = "SESS_PVT_LTD", EmployeeId = employees[code],
+                        DepartmentId = departmentId, WarehouseId = warehouseId, OwnRecordsOnly = false,
+                        AllowsPrivilegedCrossScope = false, EffectiveFrom = new DateOnly(2026, 1, 1),
+                        IsActive = true, Remarks = "Disposable post-cutoff setup actor scope", CreatedBy = "MIXED_REFERENCE_FIXTURE"
+                    });
+            await db.SaveChangesAsync();
+            return 0;
+        });
         var assignments = await Query(options,async db => (await db.EmployeeRoleAssignments.AsNoTracking().Include(x => x.Role)
             .Where(x => (x.CompanyId == company || x.CompanyId == company2) && x.EffectiveFrom <= today
-                && (!x.EffectiveTo.HasValue || x.EffectiveTo >= today)).ToListAsync())
+                && (!x.EffectiveTo.HasValue || x.EffectiveTo >= today)
+                && (x.ApprovalStatus == "Approved" || x.ApprovalStatus == "SeedApproved")).ToListAsync())
             .GroupBy(x => x.CompanyId).ToDictionary(g => g.Key,g => (IReadOnlyDictionary<string,EffectiveRoleAssignment>)g.ToDictionary(
                 x => TaxWorkflowUser.AssignmentKey(x.EmployeeId,x.Role!.Code),
                 x => new EffectiveRoleAssignment(x.Id,x.Role!.Code,x.AssignmentType))));
@@ -135,7 +176,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         // witnessed against Keycloak; these headers never enter the application.
         await using var host = await PurchaseFlowHost.StartAsync(runtime,Actor("SESS-12","IT_MANAGER"),true,true,
             requestUser: http => Actor(http.Request.Headers["X-Witness-Employee"].ToString(),
-                http.Request.Headers["X-Witness-Role"].ToString(),http.Request.Headers["X-Witness-Company"].ToString()), observeRequest: Observe);
+                http.Request.Headers["X-Witness-Role"].ToString(),http.Request.Headers["X-Witness-Company"].ToString()), observeRequest: Observe, dateTimeProvider: new MixedRunClock(now));
         using var client = new HttpClient { BaseAddress = host.Client.BaseAddress, Timeout = TimeSpan.FromMinutes(3) };
         client.DefaultRequestHeaders.Authorization = new("PurchaseFlow");
         void Select(string code,string role,string organization = "SESS_PVT_LTD")
@@ -171,7 +212,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 {
                     CompanyId = company, EmployeeCompanyAssignmentId = membership.Id, DepartmentId = it,
                     DesignationId = designation, AssignmentType = "SECONDARY", IsPrimary = false,
-                    EffectiveFrom = today, Status = "ACTIVE", IsActive = true, CreatedBy = "MIXED_REFERENCE_FIXTURE"
+                    EffectiveFrom = eventDate, Status = "ACTIVE", IsActive = true, CreatedBy = "MIXED_REFERENCE_FIXTURE"
                 };
                 db.EmployeeDepartmentAssignments.Add(assignment);
                 await db.SaveChangesAsync();
@@ -180,7 +221,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         });
         Select("SESS-12","IT_MANAGER");
         var scopeGrant = await Post<JsonElement>(client,"/api/v1/rev869a/configuration/operational-scopes",
-            new CreateOperationalScopeRequest("SESS_PVT_LTD","SESS-14","IT","TRIAL-WH-C01",null,false,false,today,null,
+            new CreateOperationalScopeRequest("SESS_PVT_LTD","SESS-14","IT","TRIAL-WH-C01",null,false,false,eventDate,null,
                 "Disposable eleven-user scenario: mapped IT approver"));
         var scopeEvidenceDirectory = Path.Combine(FindRepositoryRoot(),"local-evidence","item25");
         Directory.CreateDirectory(scopeEvidenceDirectory);
@@ -224,7 +265,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 return item.Id;
             });
             var pr = await PreparePr(key,key,4000);
-            Select("SESS-15","STORES_EXECUTIVE");
+            Select("SESS-35","STORES_EXECUTIVE");
             await PostNoResult(client,$"/api/v1/purchase/requisitions/{pr.PrNumber}/stock-check",
                 new StockCheckRequest("New item has no stock",pr.Version,key+"-stock",
                     [new(1,"TRIAL-WH-C01","TRIAL-C01-GEN-01")]),key+"-stock");
@@ -233,7 +274,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             Assert.Equal(1m,handoff.HandoffQuantity);
             Select("SESS-15","PURCHASE_EXECUTIVE");
             var rfq = await Post<Rev869BDocumentResult>(client,"/api/v1/purchase/rfqs",
-                new Rev869BCreateRfqRequest(DateTimeOffset.UtcNow.AddDays(7),"INR",false,null,key+"-rfq",[new(handoff.Id,1)]));
+                new Rev869BCreateRfqRequest(now.AddDays(7),"INR",false,null,key+"-rfq",[new(handoff.Id,1)]));
             var quotes = new List<Rev869BDocumentResult>();
             var lineId = await Query(options,db => db.RequestForQuotationLines.Where(x => x.RequestForQuotationId == rfq.Id).Select(x => x.Id).SingleAsync());
             for (var i = 0; i < vendorIds.Length; i++)
@@ -243,7 +284,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                     new Rev869BInviteVendorRequest(vendorIds[i],"Qualified vendor",version,key+"-invite-"+i));
                 quotes.Add(await Post<Rev869BDocumentResult>(client,$"/api/v1/purchase/rfq-invitations/{invite.Id}/quotations",
                     new Rev869BSubmitQuotationRequest(key+"-Q"+i,"INR","30 days","Delivered","12 months",false,null,
-                        "EMAIL_RECEIVED",DateTimeOffset.UtcNow.AddMinutes(-1),"mixed/"+key+i+".pdf",new string('A',64),
+                        "EMAIL_RECEIVED",eventNow.AddMinutes(-1),"mixed/"+key+i+".pdf",new string('A',64),
                         "Synthetic supplier evidence",0,null,key+"-quote-"+i,
                         [new(lineId,1,4000+i,0,0,0,0,0,required,"9025","33","33",VendorRegistrationType.REGULAR.ToCanonicalValue(),0)])));
             }
@@ -279,12 +320,12 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             Select("SESS-35","STORES_EXECUTIVE");
             var poLine = await Query(options,db => db.PurchaseOrderLines.Where(x => x.PurchaseOrderId == po.Id).Select(x => x.Id).SingleAsync());
             var gate = await Post<GateEntryResult>(client,"/api/v1/stores/gate-entries/",
-                new CreateGateEntryRequest(po.Number,key+"-DC","TRIAL-VEHICLE","ROAD",DateTimeOffset.UtcNow,
+                new CreateGateEntryRequest(po.Number,key+"-DC","TRIAL-VEHICLE","ROAD",eventNow,
                     "{\"packagesChecked\":true}",[new(poLine,1)]),key+"-gate");
             gate = await Post<GateEntryResult>(client,$"/api/v1/stores/gate-entries/{gate.Id}/finalize",
                 new FinalizeGateEntryRequest(gate.Version,key+"-gate-final"));
             var grn = await Post<GoodsReceiptResult>(client,"/api/v1/stores/goods-receipts/",
-                new CreateGoodsReceiptRequest(gate.GateEntryNumber,key+"-BILL",today,DateTimeOffset.UtcNow,
+                new CreateGoodsReceiptRequest(gate.GateEntryNumber,key+"-BILL",eventDate,eventNow,
                     "{\"billChecked\":true}",[new(gate.Lines.Single().Id,[new(1,1,key+"-LOT",null,today.AddMonths(-1),today.AddYears(2))],[])]),key+"-grn");
             if (stop != "GRN")
                 grn = await Post<GoodsReceiptResult>(client,$"/api/v1/stores/goods-receipts/{grn.Id}/finalize",
@@ -295,7 +336,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         {
             var policy = await Query(options,db => db.QcInspectionPolicies.Where(x => x.ItemId == grn.Lines.Single().ItemId && x.IsActive).Select(x => x.Id).SingleAsync());
             var available = await Query(options,db => db.WarehouseConditionLocations.Where(x => x.CompanyId == company && x.ConditionCode == "AVAILABLE" && x.IsActive).OrderBy(x => x.Id).Select(x => x.Id).FirstAsync());
-            return new(grn.Lines.Single().Lots.Single().Id,DateTimeOffset.UtcNow,1,0,0,available,[new(policy,1,5,null,"PASS",null)],[]);
+            return new(grn.Lines.Single().Lots.Single().Id,eventNow,1,0,0,available,[new(policy,1,5,null,"PASS",null)],[]);
         }
         var stock = await Prefix("ISSUE","QC");
         Select("SESS-33","QC_MANAGER");
@@ -316,7 +357,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         issuedMir = await Post<MaterialIssueRequestView>(client,$"/api/v1/stores/material-issue-requests/{issuedMir.Id}/approve",
             new MaterialIssueTransitionRequest(issuedMir.Version,"Approve","mixed-issue-approve"));
         Add("SESS-16","STORES_ASSISTANT","Issue",$"/api/v1/stores/material-issues/from-request/{issuedMir.Id}",
-            new CreateMaterialIssue("mixed-issue-final",employees["SESS-05"],DateTimeOffset.UtcNow,
+            new CreateMaterialIssue("mixed-issue-final",employees["SESS-05"],eventNow,
                 [new MaterialIssueScan(issuedMir.Lines.Single().Id,stock.ItemCode,null,1)]),"mixed-issue-final",issuedMir.Id);
         foreach (var actor in new[] { ("SESS-25","PRODUCTION_MANAGER"),("SESS-41","STORES_MANAGER") })
         {
@@ -325,7 +366,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 new MaterialIssueTransitionRequest(mir.Version,"Approve","mixed-mir-final-"+actor.Item1),"mixed-mir-final-"+actor.Item1,mir.Id);
         }
         // R3: the bill is entered by the Accounts Assistant and decided by the Accounts Manager.
-        Select("SESS-41","ACCOUNTS_ASSISTANT");
+        Select("SESS-28","ACCOUNTS_ASSISTANT");
         var stockGrn = stock.Grn!;
         var bill = await Post<VendorBillView>(client,$"/api/v1/accounts/vendor-bills/from-grn/{stockGrn.Id}",
             new CreateVendorBillRequest(stockGrn.VendorBillNumber,stockGrn.VendorBillDate,
@@ -334,7 +375,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         bill = await Post<VendorBillView>(client,$"/api/v1/accounts/vendor-bills/{bill.Id}/accept",
             new VendorBillDecisionRequest(bill.Version,"Accept","mixed-bill-accept"));
         Add("SESS-14","ACCOUNTS_MANAGER","Payment","/api/v1/accounts/vendor-financial-evidence/payments",
-            new RecordVendorPaymentRequest(vendorIds[0],today,1,"INR","MIXED-PAYMENT","mixed/bank.pdf",[new(bill.Id,1)],"mixed-payment"),
+            new RecordVendorPaymentRequest(vendorIds[0],eventDate,1,"INR","MIXED-PAYMENT","mixed/bank.pdf",[new(bill.Id,1)],"mixed-payment"),
             "mixed-payment",bill.Id);
         var grnPending = (await Prefix("GRN","GRN")).Grn!;
         Add("SESS-35","STORES_EXECUTIVE","GRN finalize",$"/api/v1/stores/goods-receipts/{grnPending.Id}/finalize",
@@ -386,6 +427,9 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             new OpeningStockTransitionRequest(opening.Version,"Confirmed","mixed-opening-value"));
         Add("SESS-01","TECHNICAL_DIRECTOR","Opening authorize",$"/api/v1/stores/opening-stock/{opening.Id}/authorize",
             new OpeningStockTransitionRequest(opening.Version,"Authorize","mixed-opening-final"),"mixed-opening-final",opening.Id,"SESS_PROPRIETORSHIP");
+        await AssertR1RosterManifest(new NpgsqlConnectionStringBuilder(source.ConnectionString) { Database = cloneName }.ConnectionString);
+        foreach (var command in commands)
+            await AssertResolvedSeedRole(options, Actor(command.EmployeeCode, command.Role, command.Organization), command.Role, today);
         Assert.Equal(11,commands.Count);
         Assert.Equal(11,commands.Select(x => x.EmployeeCode).Distinct().Count());
 
@@ -472,7 +516,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         await File.WriteAllTextAsync(Path.Combine(directory,"eleven-user-postgresql.log"),log);
         await File.WriteAllTextAsync(Path.Combine(directory,"eleven-user.json"),JsonSerializer.Serialize(new
         {
-            ApiBaseAddress = host.Client.BaseAddress, Database = cloneName, MaxActiveRequests = maxActiveRequests, Observations = observations,
+            EffectiveOn = today, ApiClockUtc = now, ApiBaseAddress = host.Client.BaseAddress, Database = cloneName, MaxActiveRequests = maxActiveRequests, Observations = observations,
             Scope = "One test-authenticated API host; real runtime principal, pages and scopes; no SQL gates; no DC or adjustment workflow",
             Results = commands.Select((command,index) => new { Command = command, Actor = new {
                 EmployeeId = employees[command.EmployeeCode], Subject = Actor(command.EmployeeCode,command.Role,command.Organization).IdentitySubject,
@@ -550,7 +594,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         }
         await File.WriteAllTextAsync(Path.Combine(directory,"eleven-user.json"),JsonSerializer.Serialize(new
         {
-            ApiBaseAddress = host.Client.BaseAddress, Database = cloneName, MaxActiveRequests = maxActiveRequests, Observations = observations,
+            EffectiveOn = today, ApiClockUtc = now, ApiBaseAddress = host.Client.BaseAddress, Database = cloneName, MaxActiveRequests = maxActiveRequests, Observations = observations,
             Scope = "Warm test-authenticated API; ordinary runtime, real pages and configured scopes; no SQL gates; DC/adjustment absent. Retries follow the initial simultaneous batch.",
             Results = commands.Select((command,index) => new { Command = command, Response = initialResults[index], Final = results[index] }),
             Retries = retries

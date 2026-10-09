@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { fetchItemImageUrl, getItem, getItemVendors, runItemAction } from '../../api/items'
 import type { ItemAction } from '../../api/items'
@@ -6,6 +6,7 @@ import type { ItemDetail, ItemVendorLink } from '../../types/item'
 import { PAGE_KEYS, useSession } from '../auth/SessionContext'
 import { StatusBadge } from '../employees/StatusBadge'
 import { ItemFormModal } from './ItemFormModal'
+import { ItemActionIntent } from './itemActionIntent'
 import { ErrorAlert } from '../../components/ErrorAlert'
 
 // `permission` is the masters.items action the API requires for the route
@@ -23,13 +24,17 @@ const ACTIONS: { action: ItemAction; label: string; from: string[]; permission: 
 
 export function ItemDetailPage() {
   const { itemCode = '' } = useParams()
-  const { can } = useSession()
+  const { can, me } = useSession()
   const [detail, setDetail] = useState<ItemDetail | null>(null)
   const [vendors, setVendors] = useState<ItemVendorLink[]>([])
   const [imageUrl, setImageUrl] = useState<string | null>(null)
   const [error, setError] = useState<unknown>(null)
   const [busy, setBusy] = useState(false)
   const [editing, setEditing] = useState(false)
+  const intent = useRef(new ItemActionIntent())
+  const inFlight = useRef(false)
+  const context = JSON.stringify([me?.CompanyId, me?.EmployeeId, me?.IdentityIssuer, me?.IdentitySubject, itemCode])
+  useEffect(() => { intent.current.clear() }, [context])
 
   const load = useCallback(async () => {
     setError(null)
@@ -53,16 +58,20 @@ export function ItemDetailPage() {
   }, [load])
 
   const runAction = async (action: ItemAction, label: string) => {
-    if (!detail) return
+    if (!detail || inFlight.current) return
     const remarks = window.prompt(`${label} — enter remarks (required):`)
     if (!remarks || !remarks.trim()) return
+    inFlight.current = true
+    const key = action === 'approve' ? intent.current.keyFor([context, itemCode, action, detail.Version, remarks.trim()]) : undefined
     setBusy(true)
     try {
-      await runItemAction(itemCode, action, remarks.trim(), detail.Version)
+      await runItemAction(itemCode, action, remarks.trim(), detail.Version, key)
+      intent.current.clear()
       await load()
     } catch (err) {
       setError(err)
     } finally {
+      inFlight.current = false
       setBusy(false)
     }
   }
