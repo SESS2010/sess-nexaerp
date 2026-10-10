@@ -37,9 +37,10 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
               PERFORM set_config('sess.role_authority_assignment_id',authority::text,true);
               INSERT INTO advance.employee_role_assignments
                 ("Id","CompanyId","EmployeeId","RoleId","EffectiveFrom","EffectiveTo","AssignmentType",
-                 "ApprovalStatus","Remarks","CreatedAt","CreatedBy","Version")
+                 "ApprovalStatus","Remarks","CreatedAt","CreatedBy","Version","EndReason","EndedAt","EndedBy")
               SELECT gen_random_uuid(),company,e."Id",r."Id",CURRENT_DATE-2,CURRENT_DATE-1,'SUPPORT',
-                'SeedApproved','Disposable expired-role refusal fixture',now(),'QUALIFICATION-REFUSAL-FIXTURE',0
+                'SeedApproved','Disposable expired-role refusal fixture',now(),'QUALIFICATION-REFUSAL-FIXTURE',0,
+                'Disposable role expired before the request',now(),'QUALIFICATION-REFUSAL-FIXTURE'
                 FROM advance.employees e CROSS JOIN advance.roles r
                 WHERE e."EmployeeCode"='TEST-R1-ACCOUNTS-SUPPORT' AND r."Code"='STORES_EXECUTIVE';
               INSERT INTO advance.employee_role_assignment_events
