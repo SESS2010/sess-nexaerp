@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.Extensions.Logging;
 using Npgsql;
+using SESS.NexaERP.Application.Common;
 using SESS.NexaERP.Application.Rev869A;
 using SESS.NexaERP.Domain.Identity;
 using SESS.NexaERP.Infrastructure.Persistence;
