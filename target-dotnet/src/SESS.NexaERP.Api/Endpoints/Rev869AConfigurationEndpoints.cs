@@ -221,7 +221,7 @@ public static partial class Rev869AConfigurationEndpoints
             Version = 0
         });
         var envelope = Rev869BCommandContextAuthorizer.CommandEnvelope.Create(organization, "CreateVendorQualification", idempotencyKey, request);
-        var attempt = await Rev869BCommandContextAuthorizer.OpenForPendingChangesAsync(db, user, organization, envelope, ct)
+        var attempt = await OpenVendorQualificationCommandAsync(db, user, organization, envelope, ct)
             ?? throw new InvalidOperationException("The controlled change did not produce an exact command attempt.");
         try
         {
@@ -313,7 +313,7 @@ public static partial class Rev869AConfigurationEndpoints
             Version = qualification.Version
         });
         var envelope = Rev869BCommandContextAuthorizer.CommandEnvelope.Create(user.OrganizationId, "NormalizeVendorQualification", idempotencyKey, new { qualificationId, request });
-        var attempt = await Rev869BCommandContextAuthorizer.OpenForPendingChangesAsync(db, user, user.OrganizationId, envelope, ct)
+        var attempt = await OpenVendorQualificationCommandAsync(db, user, user.OrganizationId, envelope, ct)
             ?? throw new InvalidOperationException("The controlled change did not produce an exact command attempt.");
         try { await db.SaveChangesAsync(ct); }
         catch (DbUpdateConcurrencyException)
@@ -472,7 +472,7 @@ public static partial class Rev869AConfigurationEndpoints
             Version = qualification.Version
         });
         var envelope = Rev869BCommandContextAuthorizer.CommandEnvelope.Create(user.OrganizationId, action + "VendorQualification", idempotencyKey, new { qualificationId, request });
-        var attempt = await Rev869BCommandContextAuthorizer.OpenForPendingChangesAsync(db, user, user.OrganizationId, envelope, ct)
+        var attempt = await OpenVendorQualificationCommandAsync(db, user, user.OrganizationId, envelope, ct)
             ?? throw new InvalidOperationException("The controlled change did not produce an exact command attempt.");
         try { await db.SaveChangesAsync(ct); }
         catch (DbUpdateConcurrencyException)
@@ -532,6 +532,23 @@ public static partial class Rev869AConfigurationEndpoints
         if(row.Version!=request.Version)return Results.Conflict(new{message="Stale record version. Refresh and retry."});if(row.EffectiveTo.HasValue)return Results.Conflict(new{message="This condition-location version is already closed. Create a new version instead."});if(request.EffectiveTo<row.EffectiveFrom)return Results.BadRequest(new{message="Effective To must be on or after Effective From."});
         var balance=await db.StockMovements.Where(x=>x.CompanyId==companyId.Value&&x.WarehouseConditionLocationId==row.Id).SumAsync(x=>(decimal?)(x.QuantityIn-x.QuantityOut),ct)??0m;if(balance!=0m)return Results.Conflict(new{message=$"Condition location cannot be closed while its current stock balance is {balance}. Transfer or issue the stock first."});
         var before=new{row.EffectiveTo,row.IsActive,row.Version};row.EffectiveTo=request.EffectiveTo;row.Version=checked(row.Version+1);row.UpdatedAt=DateTimeOffset.UtcNow;row.UpdatedBy=user.LoginId;AddHistory(db,row.OrganizationId,nameof(WarehouseConditionLocation),row.Id,"CloseVersion",before,new{row.EffectiveTo,row.IsActive,row.Version},request.Remarks,user,row.CompanyId);await db.SaveChangesAsync(ct);await audit.WriteAsync("Stores","CloseWarehouseConditionLocation",nameof(WarehouseConditionLocation),row.Id.ToString(),before,row,ct);return Results.Ok(new{row.Id,row.EffectiveTo,row.Version});
+    }
+
+    // Database role authority is checked again when the controlled command is registered.
+    // Keep expired/unauthorized assignments as the existing permission refusal, not a 500.
+    private static async Task<Rev869BCommandContextAuthorizer.CommandAttemptHandle?> OpenVendorQualificationCommandAsync(
+        NexaErpDbContext db, ICurrentUser user, string organization,
+        Rev869BCommandContextAuthorizer.CommandEnvelope envelope, CancellationToken ct)
+    {
+        try
+        {
+            return await Rev869BCommandContextAuthorizer.OpenForPendingChangesAsync(db, user, organization, envelope, ct);
+        }
+        catch (Npgsql.PostgresException exception) when (exception.SqlState == Npgsql.PostgresErrorCodes.InsufficientPrivilege)
+        {
+            throw new UnauthorizedAccessException(
+                "The current identity does not have permission for this operation in this company and scope.", exception);
+        }
     }
 
     private static async Task<IResult> CreateQcPolicy(CreateQcInspectionPolicyRequest request, NexaErpDbContext db, ICurrentUser user, IAuditWriter audit, CancellationToken ct)
