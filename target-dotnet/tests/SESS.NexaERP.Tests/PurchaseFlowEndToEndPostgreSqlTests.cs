@@ -114,7 +114,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             server.Execute("purchase-flow-business-up.sql", migrator.GenerateScript("0", latest));
         server.Execute("purchase-flow-trial.sql", "\\set expected_database advance_parser\n" +
             File.ReadAllText(Path.Combine(FindRepositoryRoot(), "database", "postgresql", "trial-master-data-apply.sql")));
-        var useIndependentSupportActors = rosterSupportFixture || DateOnly.FromDateTime(DateTime.UtcNow) >= new DateOnly(2026,10,10);
+        // Independent disposable actors keep mixed-role refusal coverage stable across the roster cutoff.
+        var useIndependentSupportActors = true;
         if (useIndependentSupportActors) server.Execute("r1-workflow-support-fixture.sql",R1PurchaseFlowSupportFixtureSql);
         var options = new DbContextOptionsBuilder<NexaErpDbContext>().UseNpgsql(server.ConnectionString).Options;
         Guid creatorId;
@@ -263,7 +264,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             await File.WriteAllTextAsync(Path.Combine(evidence, "qc-posting-function-permissions.json"),
                 JsonSerializer.Serialize(new { Before = beforePermissions, Down = downPermissions, Reapplied = afterPermissions }));
         }
-        var roleOnDate = rosterSupportFixture ? new DateOnly(2026,10,10) : DateOnly.FromDateTime(DateTime.UtcNow);
+        var roleOnDate = rosterSupportFixture ? new DateOnly(2026,10,10)
+            : await Query(options, db => db.Database.SqlQuery<DateOnly>($"SELECT CURRENT_DATE AS \"Value\"").SingleAsync());
         var roleAssignments = await Query(options, async db => (await db.EmployeeRoleAssignments.AsNoTracking().Include(x => x.Role)
             .Where(x => x.CompanyId == Guid.Parse("70000000-0000-0000-0000-000000000001")
                 && (x.ApprovalStatus == "Approved" || x.ApprovalStatus == "SeedApproved")
@@ -2483,6 +2485,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
     private sealed class PurchaseFlowHost(WebApplication app, HttpClient client) : IAsyncDisposable
     {
         public HttpClient Client { get; } = client;
+        public void AddErrorCapture(ILoggerProvider provider) => app.Services.GetRequiredService<ILoggerFactory>().AddProvider(provider);
         public IReadOnlyList<string> QcMutationRoutes => QcReachabilityWitness.Routes((Microsoft.AspNetCore.Routing.IEndpointRouteBuilder)app);
 
         public static async Task<PurchaseFlowHost> StartAsync(
