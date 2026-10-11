@@ -450,7 +450,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             Assert.Equal(3m,initialFifo.Totals.Sum(row=>row.GetProperty("quantity").GetDecimal()));
             // The committed GRN costing path posts the PO total payable per unit,
             // including its tax allocation; bare GRN UnitRate is not the layer value.
-            Assert.Equal(128620.01m,initialFifo.Totals.Sum(row=>row.GetProperty("value").GetDecimal()));
+            // F32: financial payable assertions remain tax-inclusive; new FIFO is captured inventory cost.
+            Assert.Equal(109000.01m,initialFifo.Totals.Sum(row=>row.GetProperty("value").GetDecimal()));
             var pendingLandedBill = await RunVendorBillWitness(client, options, user, grns, managerId, accountsSupportId,
                 billRace is null ? null : draft => billRace(new(options, runtimeConnection, draft,
                     managerId, "vendor-bill-accept-2", server.ReadDiagnosticLog)),
@@ -688,7 +689,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             WitnessReportPath("/api/v1/reports/fifo-valuation"));
         var restoredTotal=Assert.Single(restoredFifo.Totals);
         Assert.Equal(2.63m,restoredTotal.GetProperty("quantity").GetDecimal());
-        Assert.Equal(.63m*(4720m+12m)+5900m+118000.01m,restoredTotal.GetProperty("value").GetDecimal());
+        Assert.Equal(.63m*(4000m+12m)+5000m+100000.01m,restoredTotal.GetProperty("value").GetDecimal());
         var restoredSelection=Uri.EscapeDataString(restoredTotal.GetProperty("group").GetRawText());
         var restoredDetails=await Get<SESS.NexaERP.Application.Reporting.CompanyReportPage>(client,
             WitnessReportPath("/api/v1/reports/fifo-valuation?mode=details&metric=value&selection="+restoredSelection));

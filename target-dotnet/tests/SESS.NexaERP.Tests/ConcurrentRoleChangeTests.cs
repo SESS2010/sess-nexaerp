@@ -172,8 +172,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Assert.Equal(newAssignment.AssignmentId,roleEvent.AssignmentId);
         var cost = Assert.Single(state.Fifo);
         Assert.Equal(1m,cost.Quantity);
-        Assert.Equal(5900m,cost.UnitCost);
-        Assert.Equal(5900m,cost.ConsumedValue);
+        Assert.Equal(5000m,cost.UnitCost);
+        Assert.Equal(5000m,cost.ConsumedValue);
         Assert.All(state.Balances,row => Assert.InRange(row.Quantity,0m,1m));
         Assert.Equal(1m,state.Balances.Sum(row => row.Quantity));
         var history = Assert.Single(state.Histories);
