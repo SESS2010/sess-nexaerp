@@ -342,21 +342,41 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             SELECT 'assignments' kind,md5(jsonb_agg(to_jsonb(a) ORDER BY "Id")::text) digest
               FROM advance.employee_role_assignments a UNION ALL
             SELECT 'events',md5(jsonb_agg(to_jsonb(e) ORDER BY "Id")::text)
-              FROM advance.employee_role_assignment_events e;
+              FROM advance.employee_role_assignment_events e UNION ALL
+            SELECT 'migrations',md5(jsonb_agg(to_jsonb(m) ORDER BY "MigrationId")::text)
+              FROM public."__EFMigrationsHistory" m;
             """);
         // NoTransactions keeps the rejected Down in one outer transaction, so
         // earlier migrations cannot commit a partial teardown before the refusal.
         var session = managedRoles ? MigrationOwnerSession : "";
+        // A late fresh install retains additional CFO start-alignment events.
+        // Its evidence-preserving CFO guard refuses before the historical FK guard.
+        // Select the exact expected refusal from installed history, never the wall clock.
+        bool retainsLateCfoHistory;
+        using (var connection = new Npgsql.NpgsqlConnection(server.ConnectionString))
+        {
+            connection.Open();
+            using var command = new Npgsql.NpgsqlCommand("""
+                SELECT EXISTS(SELECT 1 FROM advance.employee_role_assignment_events
+                  WHERE "Operation"='R1_SEED_START_ALIGN'
+                    AND "ToRoleCode"='CHIEF_FINANCIAL_OFFICER')
+                """, connection);
+            retainsLateCfoHistory = (bool)command.ExecuteScalar()!;
+        }
         server.AssertRejected("current-head-down-refuses-retained-history.sql",
             session + "BEGIN;\n" + migrator.GenerateScript(head, "0", MigrationsSqlGenerationOptions.NoTransactions),
-            "violates foreign key constraint");
+            retainsLateCfoHistory
+                ? "CFO rollback refuses changed or used authority; only the untouched installation baseline can be removed."
+                : "violates foreign key constraint");
         server.Execute("roster-history-after-rejected-down.sql", """
             DO $check$ BEGIN
               IF EXISTS(SELECT 1 FROM public.baseline_authority_before_down old FULL JOIN
                 (SELECT 'assignments' kind,md5(jsonb_agg(to_jsonb(a) ORDER BY "Id")::text) digest
                    FROM advance.employee_role_assignments a UNION ALL
                  SELECT 'events',md5(jsonb_agg(to_jsonb(e) ORDER BY "Id")::text)
-                   FROM advance.employee_role_assignment_events e) current USING(kind)
+                   FROM advance.employee_role_assignment_events e UNION ALL
+                 SELECT 'migrations',md5(jsonb_agg(to_jsonb(m) ORDER BY "MigrationId")::text)
+                   FROM public."__EFMigrationsHistory" m) current USING(kind)
                  WHERE old.digest IS DISTINCT FROM current.digest)
                 OR NOT EXISTS(SELECT 1 FROM public."__EFMigrationsHistory"
                    WHERE "MigrationId"='20261003113000_MirRollbackJournalProtection') THEN
