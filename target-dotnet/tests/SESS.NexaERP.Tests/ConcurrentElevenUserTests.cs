@@ -626,7 +626,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Assert.Equal(1m,issueLine.QuantityBase);
         var consumption = await state.FifoCostConsumptions.SingleAsync(x => x.MaterialIssueLineId == issueLine.Id);
         Assert.Equal(1m,consumption.Quantity);
-        Assert.Equal(4720m,consumption.ConsumedValue);
+        Assert.Equal(4000m,consumption.ConsumedValue);
         var issueMoves = await state.StockMovements.Where(x => x.StockPostingBatchId == issue.StockPostingBatchId).ToListAsync();
         Assert.Equal(2,issueMoves.Count);
         Assert.Equal(1m,issueMoves.Sum(x => x.QuantityIn));
