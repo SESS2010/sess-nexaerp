@@ -99,6 +99,9 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         if (returnRace is not null || grnRace is not null || mirRace is not null || prRace is not null || billRace is not null || issueRace is not null || paymentRace is not null || qcCorrection is not null || qcRace is not null || fifoRace is not null || mixedRun is not null || obligations is not null)
             server.Execute("concurrency-log-settings.sql",
                 "ALTER SYSTEM SET log_error_verbosity='verbose'; SELECT pg_reload_conf();");
+        var options = new DbContextOptionsBuilder<NexaErpDbContext>().UseNpgsql(server.ConnectionString).Options;
+        const string runtimePassword = "ordinary-purchase-runtime-123456789";
+        var migrationBaseline = "0";
         if (returnRace is not null)
         {
             // Round-trip at this migration's historical baseline, before later function replacements.
@@ -108,16 +111,45 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             server.Execute("fitment-lock-order-initial.sql", migrator.GenerateScript("0", migrations[lockOrder]));
             server.Execute("fitment-lock-order-down.sql", migrator.GenerateScript(migrations[lockOrder], migrations[lockOrder - 1]));
             server.Execute("fitment-lock-order-reapply.sql", migrator.GenerateScript(migrations[lockOrder - 1], migrations[lockOrder]));
-            server.Execute("purchase-flow-business-up.sql", migrator.GenerateScript(migrations[lockOrder], latest));
+            migrationBaseline = migrations[lockOrder];
         }
-        else
-            server.Execute("purchase-flow-business-up.sql", migrator.GenerateScript("0", latest));
+        if (paymentRace is not null)
+        {
+            // A populated current-head database retains roster/CFO evidence and correctly refuses
+            // a blanket downgrade. Use a separate disposable historical fixture so trial data
+            // in the purchase-flow fixture still runs before principal provisioning.
+            using var paymentServer = DisposablePostgreSql.Start(FindPostgreSqlBin());
+            var paymentOptions = new DbContextOptionsBuilder<NexaErpDbContext>()
+                .UseNpgsql(paymentServer.ConnectionString).Options;
+            var migrations = model.Database.GetMigrations().ToArray();
+            const string paymentLockOrder = "20260913030000_VendorPaymentBillLockOrder";
+            var index = Array.IndexOf(migrations, paymentLockOrder);
+            Assert.True(index > 0);
+            paymentServer.Execute("payment-lock-order-initial.sql", migrator.GenerateScript("0", paymentLockOrder));
+            using (var historicalEnvironment = new OrdinaryPrincipalEnvironment(paymentServer.ConnectionString, runtimePassword))
+                Assert.Equal(0, await DatabasePrincipalCommand.RunAsync(["database-principals", "provision"]));
+            var beforePermissions = await PaymentFunctionMetadata(paymentOptions);
+            paymentServer.Execute("payment-lock-order-down.sql", migrator.GenerateScript(paymentLockOrder, migrations[index - 1]));
+            var downPermissions = await PaymentFunctionMetadata(paymentOptions);
+            paymentServer.Execute("payment-lock-order-reapply.sql", migrator.GenerateScript(migrations[index - 1], paymentLockOrder));
+            var afterPermissions = await PaymentFunctionMetadata(paymentOptions);
+            Assert.Equal(beforePermissions, downPermissions);
+            Assert.Equal(beforePermissions, afterPermissions);
+            var evidence = Path.Combine(FindRepositoryRoot(), "local-evidence", "item25");
+            Directory.CreateDirectory(evidence);
+            await File.WriteAllTextAsync(Path.Combine(evidence, "payment-function-permissions.json"),
+                JsonSerializer.Serialize(new { Before = beforePermissions, Down = downPermissions, Reapplied = afterPermissions }));
+            paymentServer.Execute("payment-lock-order-current-head.sql", migrator.GenerateScript(paymentLockOrder, latest));
+            using (var currentEnvironment = new OrdinaryPrincipalEnvironment(paymentServer.ConnectionString, runtimePassword))
+                Assert.Equal(0, await DatabasePrincipalCommand.RunAsync(["database-principals", "provision"]));
+            Assert.Equal(afterPermissions, await PaymentFunctionMetadata(paymentOptions));
+        }
+        server.Execute("purchase-flow-business-up.sql", migrator.GenerateScript(migrationBaseline, latest));
         server.Execute("purchase-flow-trial.sql", "\\set expected_database advance_parser\n" +
             File.ReadAllText(Path.Combine(FindRepositoryRoot(), "database", "postgresql", "trial-master-data-apply.sql")));
         // Independent disposable actors keep mixed-role refusal coverage stable across the roster cutoff.
         var useIndependentSupportActors = true;
         if (useIndependentSupportActors) server.Execute("r1-workflow-support-fixture.sql",R1PurchaseFlowSupportFixtureSql);
-        var options = new DbContextOptionsBuilder<NexaErpDbContext>().UseNpgsql(server.ConnectionString).Options;
         Guid creatorId;
         Guid managerId;
         Guid tdId;
@@ -212,35 +244,18 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         }
 
         if (intercompanySetup is not null) await intercompanySetup(options);
-        const string runtimePassword = "ordinary-purchase-runtime-123456789";
         using var environment = new OrdinaryPrincipalEnvironment(server.ConnectionString, runtimePassword);
         Assert.Equal(0, await DatabasePrincipalCommand.RunAsync(["database-principals", "provision"]));
         if (multiSerialQcWitness) await ProveRequiredReadGrantMigration(server, options, migrator, model.Database.GetMigrations().ToArray());
         if (concessionHistoryWitness)
             await AssertConcessionHistoryMigration(options, migrator, (name, sql) => server.Execute(name, sql));
         if (paymentRace is not null)
-        {
-            var migrations = model.Database.GetMigrations().ToArray();
-            const string paymentLockOrder = "20260913030000_VendorPaymentBillLockOrder";
-            var index = Array.IndexOf(migrations, paymentLockOrder);
-            Assert.True(index > 0);
-            var beforePermissions = await PaymentFunctionMetadata(options);
-            server.Execute("payment-lock-order-down.sql", migrator.GenerateScript(latest, migrations[index - 1]));
-            var downPermissions = await PaymentFunctionMetadata(options);
-            server.Execute("payment-lock-order-reapply.sql", migrator.GenerateScript(migrations[index - 1], latest));
-            var afterPermissions = await PaymentFunctionMetadata(options);
-            Assert.Equal(beforePermissions, downPermissions);
-            Assert.Equal(beforePermissions, afterPermissions);
-            var evidence = Path.Combine(FindRepositoryRoot(), "local-evidence", "item25");
-            Directory.CreateDirectory(evidence);
-            await File.WriteAllTextAsync(Path.Combine(evidence, "payment-function-permissions.json"),
-                JsonSerializer.Serialize(new { Before = beforePermissions, Down = downPermissions, Reapplied = afterPermissions }));
-        }
+            _ = await PaymentFunctionMetadata(options);
         // R2 (26 Sep): quotations must carry the derived GST states. This witness's tax rule and amounts are
         // intrastate (33/33), so the company gets a Tamil Nadu profile and trial vendor 001 (Karnataka in
         // the trial data) is moved to Tamil Nadu here; the refusal and the interstate case are witnessed in
-        // QuotationStateRuleTests and the fresh-company rehearsal. It runs after the payment-lock round
-        // trip above, which rolls the schema down past the profile table (whose Down refuses retained rows).
+        // QuotationStateRuleTests and the fresh-company rehearsal. Historical migration round-trips
+        // run before current-head fixture data and retained profile/roster evidence are created.
         server.Execute("purchase-flow-gst-states.sql", """
             INSERT INTO advance.company_profiles("CompanyId","LegalName","Gstin","Pan","StateCode","State","AddressLine1","City","PinCode","UpdatedBy")
             VALUES ('70000000-0000-0000-0000-000000000001','SESS witness company','33ABACS5491H1ZA','ABACS5491H','33','Tamil Nadu','Witness address','Chennai','600001','PURCHASE_FLOW_TEST');
