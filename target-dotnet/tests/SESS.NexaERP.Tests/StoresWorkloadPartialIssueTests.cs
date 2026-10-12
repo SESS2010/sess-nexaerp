@@ -63,7 +63,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 return page;
             }
             Assert.True(await source.MaterialReturns.AnyAsync(x=>x.Status=="ACCEPTED"));
-            await Use("SESS-15","PURCHASE_MANAGER");
+            await Use(R1PurchaseSupportEmployeeCode,"PURCHASE_MANAGER");
             var mir=await Post<MaterialIssueRequestView>(host.Client,"/api/v1/stores/material-issue-requests",
                 new CreateMaterialIssueRequest("FACTORY_ASSEMBLY","CONSUMABLE_OFFICE","DEPARTMENT",
                     null,null,null,department,"Partial issue witness",department,DateOnly.FromDateTime(DateTime.UtcNow),

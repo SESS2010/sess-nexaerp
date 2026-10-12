@@ -103,7 +103,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             WHERE "MaterialReturnLineId"={returnLineId}
             """).SingleAsync();
         Assert.Equal(.30m, restoredQuantity);
-        Assert.Equal(1416m, restoredValue);
+        // F32: .30 units restore their original new-layer ex-GST issue cost (4000 per unit).
+        Assert.Equal(1200m, restoredValue);
         Assert.Equal(originalConsumptions, await db.FifoCostConsumptions.AsNoTracking().OrderBy(x => x.Id)
             .Select(x => new { x.Id, x.Quantity, x.UnitCost, x.ConsumedValue, x.ConsumedAt }).ToArrayAsync());
         Assert.Equal(originalLayers, await db.FifoInventoryCostLayers.AsNoTracking().OrderBy(x => x.Id)
@@ -111,7 +112,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         user.Set(context.AccountsId, "SESS-14", Rev869ARoleCodes.AccountsManager);
         var fifoAfter = await Get<CompanyReportPage>(client, WitnessReportPath("/api/v1/reports/fifo-valuation"));
         Assert.Equal(2.88m, Assert.Single(fifoAfter.Totals).GetProperty("quantity").GetDecimal());
-        Assert.Equal(1419.60m, fifoAfter.Totals.Single().GetProperty("value").GetDecimal()
+        Assert.Equal(1203.60m, fifoAfter.Totals.Single().GetProperty("value").GetDecimal()
             - fifoBefore.Totals.Single().GetProperty("value").GetDecimal());
         Assert.Equal(afterAcceptanceCounts, await Counts());
         var output = Path.Combine(FindRepositoryRoot(), "local-evidence", "item15");

@@ -87,7 +87,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Func<FifoPartialFitmentReturnContext,Task>? fifoPartialReturn = null,
         Func<SupplierInvoiceWitnessContext,Task>? supplierInvoices = null, Func<MachineDeliveryWitnessContext,Task>? machineDelivery = null,
         Func<DbContextOptions<NexaErpDbContext>,Task>? intercompanySetup = null,
-        Func<SupplierInvoiceWitnessContext,Task>? intercompanyPurchase = null, bool multiSerialQcWitness = false, bool rosterSupportFixture = false)
+        Func<SupplierInvoiceWitnessContext,Task>? intercompanyPurchase = null, bool multiSerialQcWitness = false, bool rosterSupportFixture = false, bool scopeAlignmentWitness = false)
     {
         var bootstrapOptions = new DbContextOptionsBuilder<NexaErpDbContext>()
             .UseNpgsql("Host=127.0.0.1;Port=1;Database=no_connect;Username=no_connect").Options;
@@ -114,7 +114,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             server.Execute("purchase-flow-business-up.sql", migrator.GenerateScript("0", latest));
         server.Execute("purchase-flow-trial.sql", "\\set expected_database advance_parser\n" +
             File.ReadAllText(Path.Combine(FindRepositoryRoot(), "database", "postgresql", "trial-master-data-apply.sql")));
-        var useIndependentSupportActors = rosterSupportFixture || DateOnly.FromDateTime(DateTime.UtcNow) >= new DateOnly(2026,10,10);
+        // Independent disposable actors keep mixed-role refusal coverage stable across the roster cutoff.
+        var useIndependentSupportActors = true;
         if (useIndependentSupportActors) server.Execute("r1-workflow-support-fixture.sql",R1PurchaseFlowSupportFixtureSql);
         var options = new DbContextOptionsBuilder<NexaErpDbContext>().UseNpgsql(server.ConnectionString).Options;
         Guid creatorId;
@@ -181,6 +182,13 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 AllowsPrivilegedCrossScope = false, EffectiveFrom = new DateOnly(2026, 1, 1),
                 IsActive = true, Remarks = "Disposable full Purchase flow", CreatedBy = "PURCHASE_FLOW_TEST"
             }));
+            if (scopeAlignmentWitness)
+                seed.Warehouses.Add(new Warehouse
+                {
+                    CompanyId = companyId, WarehouseCode = "SCOPE-OTHER-PVT", Name = "Disposable scope-negative warehouse",
+                    WarehouseType = "DEVELOPMENT", Status = "Active", ApprovalStatus = "Approved", IsActive = true,
+                    ApprovedBy = "SCOPE_WITNESS", ApprovedAt = DateTimeOffset.UtcNow, CreatedBy = "SCOPE_WITNESS"
+                });
             // Explicit disposable TD reporting scope for the QC stock witness.
             if(qcStock is not null)seed.EmployeeOperationalScopes.Add(new EmployeeOperationalScope
             {
@@ -256,7 +264,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             await File.WriteAllTextAsync(Path.Combine(evidence, "qc-posting-function-permissions.json"),
                 JsonSerializer.Serialize(new { Before = beforePermissions, Down = downPermissions, Reapplied = afterPermissions }));
         }
-        var roleOnDate = rosterSupportFixture ? new DateOnly(2026,10,10) : DateOnly.FromDateTime(DateTime.UtcNow);
+        var roleOnDate = rosterSupportFixture ? new DateOnly(2026,10,10)
+            : await Query(options, db => db.Database.SqlQuery<DateOnly>($"SELECT CURRENT_DATE AS \"Value\"").SingleAsync());
         var roleAssignments = await Query(options, async db => (await db.EmployeeRoleAssignments.AsNoTracking().Include(x => x.Role)
             .Where(x => x.CompanyId == Guid.Parse("70000000-0000-0000-0000-000000000001")
                 && (x.ApprovalStatus == "Approved" || x.ApprovalStatus == "SeedApproved")
@@ -408,7 +417,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                         if (supplierInvoices is not null) await supplierInvoices(context);
                         if (intercompanyPurchase is not null) await intercompanyPurchase(context);
                     }, technicalWitnessClient: multiSerialQcWitness ? qcHost.Client : null,
-                    technicalWitnessActorId: multiSerialQcWitness ? technicalVerifierId : null));
+                    technicalWitnessActorId: multiSerialQcWitness ? technicalVerifierId : null, scopeAlignmentWitness: scopeAlignmentWitness));
             var runtimeOptions = new DbContextOptionsBuilder<NexaErpDbContext>().UseNpgsql(runtimeConnection).Options;
             await using (var notificationDb = new NexaErpDbContext(runtimeOptions))
             {
@@ -441,7 +450,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             Assert.Equal(3m,initialFifo.Totals.Sum(row=>row.GetProperty("quantity").GetDecimal()));
             // The committed GRN costing path posts the PO total payable per unit,
             // including its tax allocation; bare GRN UnitRate is not the layer value.
-            Assert.Equal(128620.01m,initialFifo.Totals.Sum(row=>row.GetProperty("value").GetDecimal()));
+            // F32: financial payable assertions remain tax-inclusive; new FIFO is captured inventory cost.
+            Assert.Equal(109000.01m,initialFifo.Totals.Sum(row=>row.GetProperty("value").GetDecimal()));
             var pendingLandedBill = await RunVendorBillWitness(client, options, user, grns, managerId, accountsSupportId,
                 billRace is null ? null : draft => billRace(new(options, runtimeConnection, draft,
                     managerId, "vendor-bill-accept-2", server.ReadDiagnosticLog)),
@@ -679,7 +689,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             WitnessReportPath("/api/v1/reports/fifo-valuation"));
         var restoredTotal=Assert.Single(restoredFifo.Totals);
         Assert.Equal(2.63m,restoredTotal.GetProperty("quantity").GetDecimal());
-        Assert.Equal(.63m*(4720m+12m)+5900m+118000.01m,restoredTotal.GetProperty("value").GetDecimal());
+        Assert.Equal(.63m*(4000m+12m)+5000m+100000.01m,restoredTotal.GetProperty("value").GetDecimal());
         var restoredSelection=Uri.EscapeDataString(restoredTotal.GetProperty("group").GetRawText());
         var restoredDetails=await Get<SESS.NexaERP.Application.Reporting.CompanyReportPage>(client,
             WitnessReportPath("/api/v1/reports/fifo-valuation?mode=details&metric=value&selection="+restoredSelection));
@@ -780,7 +790,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Func<string, Guid, Task>? openOrders = null, bool overdueQuoteDates = false,
         Func<Rev869BDocumentResult, Task<Rev869BDocumentResult>>? amendIssued = null,
         Func<string,Guid,Task>? storesWorkload = null, Func<string,Guid,Task>? qcStock = null,
-        Func<string,Guid,Task>? supplierInvoices = null, decimal receiptQuantity = 1m, decimal requestedQuantity = 1m, decimal expectedHandoffQuantity = 1m, HttpClient? technicalWitnessClient = null, Guid? technicalWitnessActorId = null)
+        Func<string,Guid,Task>? supplierInvoices = null, decimal receiptQuantity = 1m, decimal requestedQuantity = 1m, decimal expectedHandoffQuantity = 1m, HttpClient? technicalWitnessClient = null, Guid? technicalWitnessActorId = null, bool scopeAlignmentWitness = false)
     {
         var required = DateOnly.FromDateTime(DateTime.UtcNow).AddDays(30);
         user.Set(creatorId, "SESS-12", "IT_MANAGER");
@@ -858,9 +868,20 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Assert.Equal(PurchaseRequisitionStatuses.StockCheckPending, pr.Status);
         await AssertApprovalActors(options, "PR", pr.Id, band.RequiredSteps, managerId, band.Level2EmployeeId);
         if (workload is not null) await workload("PR_STOCK_CHECK", pr.Id);
+        if (scopeAlignmentWitness) await ProveWorkflowActorReadScope(options, pr, band, approvalClient, user, tdId, mdId);
 
-        user.Set(purchaseId, "SESS-15", Rev869ARoleCodes.StoresExecutive,
-            Rev869ARoleCodes.PurchaseExecutive, Rev869ARoleCodes.PurchaseManager, Rev869ARoleCodes.StoresExecutive);
+        if (scopeAlignmentWitness)
+        {
+            var stockEmployee = band.Code == "TD" ? await Query(options, db => Employee(db, "SESS-16")) : storesId;
+            user.Set(stockEmployee, band.Code == "TD" ? "SESS-16" : "SESS-35",
+                band.Code == "TD" ? "STORES_ASSISTANT" : Rev869ARoleCodes.StoresExecutive);
+            var stockQueue = await Get<PagedResponse<PurchaseRequisitionSummary>>(prClient,
+                $"/api/v1/stores/stock-check/requisitions?prNumber={pr.PrNumber}");
+            Assert.Equal(pr.Id, Assert.Single(stockQueue.Items).Id);
+        }
+        else
+            // The dedicated stores contract requires an actual seeded Stores role, not Purchase role claims.
+            user.Set(storesId, "SESS-35", Rev869ARoleCodes.StoresExecutive);
         var stockCheckDetail = await Get<StockCheckPurchaseRequisitionDetail>(prClient,
             $"/api/v1/stores/stock-check/requisitions/{pr.PrNumber}");
         Assert.Equal(pr.PrNumber, stockCheckDetail.PrNumber);
@@ -875,6 +896,13 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         await PostNoResult(prClient, $"/api/v1/purchase/requisitions/{pr.PrNumber}/stock-check",
             new StockCheckRequest("No stock; purchase required", pr.Version, $"{band.Code}-stock",
                 [new(1, "TRIAL-WH-C01", "TRIAL-C01-GEN-01")]), $"{band.Code}-stock");
+        var completedStock = await Get<StockCheckPurchaseRequisitionDetail>(prClient,
+            $"/api/v1/stores/stock-check/requisitions/{pr.PrNumber}");
+        if (scopeAlignmentWitness)
+        {
+            Assert.Equal(PurchaseRequisitionStatuses.NotAvailable, completedStock.Status);
+            Assert.Equal(expectedHandoffQuantity, Assert.Single(completedStock.Lines).ShortageQuantity);
+        }
         var handoff = await Query(options, db => db.PurchaseRequirementHandoffs
             .Where(x => x.PurchaseRequisitionId == pr.Id).Select(x => new { x.Id, x.HandoffQuantity }).SingleAsync());
         Assert.Equal(expectedHandoffQuantity, handoff.HandoffQuantity);
@@ -977,10 +1005,20 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         {
             var role = band.Level2EmployeeId == tdId ? Rev869ARoleCodes.TechnicalDirector : Rev869ARoleCodes.ManagingDirector;
             user.Set(band.Level2EmployeeId.Value, role == Rev869ARoleCodes.TechnicalDirector ? "SESS-01" : "SESS-02", role);
+            if (scopeAlignmentWitness)
+            {
+                var assignedRead = await Get<JsonElement>(client, $"/api/v1/purchase/comparisons/{comparison.Number}");
+                Assert.Equal(comparison.Id, assignedRead.GetProperty("Id").GetGuid());
+                using var stale = await client.PostAsJsonAsync($"/api/v1/purchase/comparisons/{comparison.Number}/approve",
+                    new Rev869BApprovalActionRequest("Stale assigned decision", comparison.Version - 1, band.Code + "-scope-cmp-stale"));
+                Assert.Equal(HttpStatusCode.Conflict, stale.StatusCode);
+            }
             comparison = await Post<Rev869BDocumentResult>(client, $"/api/v1/purchase/comparisons/{comparison.Number}/approve",
                 new Rev869BApprovalActionRequest("Level 2 comparison approval", comparison.Version, $"{band.Code}-comparison-approve-2"));
         }
         Assert.Equal(Rev869BStatuses.Approved, comparison.Status);
+        if (scopeAlignmentWitness && band.Level2EmployeeId.HasValue)
+            Assert.Equal(comparison.Id, (await Get<JsonElement>(client, $"/api/v1/purchase/comparisons/{comparison.Number}")).GetProperty("Id").GetGuid());
         user.Set(purchaseId, "SESS-15", Rev869ARoleCodes.PurchaseManager,
             Rev869ARoleCodes.PurchaseExecutive, Rev869ARoleCodes.PurchaseManager, Rev869ARoleCodes.StoresExecutive);
         var comparisonList=await Get<PagedResponse<ComparisonListItem>>(client,$"/api/v1/purchase/comparisons?comparisonNumber={comparison.Number}&vendorId={vendor1Id}");
@@ -1006,10 +1044,24 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         {
             var role = band.Level2EmployeeId == tdId ? Rev869ARoleCodes.TechnicalDirector : Rev869ARoleCodes.ManagingDirector;
             user.Set(band.Level2EmployeeId.Value, role == Rev869ARoleCodes.TechnicalDirector ? "SESS-01" : "SESS-02", role);
+            if (scopeAlignmentWitness)
+            {
+                Assert.Equal(po.Id, (await Get<JsonElement>(client, $"/api/v1/purchase/purchase-orders/{po.Number}")).GetProperty("Id").GetGuid());
+                using var stale = await client.PostAsJsonAsync($"/api/v1/purchase/purchase-orders/{po.Number}/approve",
+                    new Rev869BPoApprovalActionRequest("Stale assigned PO", po.Version - 1, null, band.Code + "-scope-po-stale"));
+                Assert.Equal(HttpStatusCode.Conflict, stale.StatusCode);
+            }
             po = await Post<Rev869BDocumentResult>(client, $"/api/v1/purchase/purchase-orders/{po.Number}/approve",
                 new Rev869BPoApprovalActionRequest("Level 2 PO approval", po.Version, null, $"{band.Code}-po-approve-2"));
         }
         Assert.Equal(Rev869BStatuses.Approved, po.Status);
+        if (scopeAlignmentWitness && band.Level2EmployeeId.HasValue)
+        {
+            Assert.Equal(po.Id, (await Get<JsonElement>(client, $"/api/v1/purchase/purchase-orders/{po.Number}")).GetProperty("Id").GetGuid());
+            using var forbiddenIssue = await client.PostAsJsonAsync($"/api/v1/purchase/purchase-orders/{po.Number}/issue",
+                new Rev869BIssuePurchaseOrderRequest("Historical reader cannot issue", po.Version, band.Code + "-scope-no-issue"));
+            Assert.Equal(HttpStatusCode.Forbidden, forbiddenIssue.StatusCode);
+        }
         await AssertApprovalActors(options, "PO", po.Id, band.RequiredSteps, managerId, band.Level2EmployeeId);
         if (workload is not null) await workload("PO_APPROVED", po.Id);
         user.Set(purchaseId, "SESS-15", Rev869ARoleCodes.PurchaseManager,
@@ -2434,6 +2486,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
     private sealed class PurchaseFlowHost(WebApplication app, HttpClient client) : IAsyncDisposable
     {
         public HttpClient Client { get; } = client;
+        public void AddErrorCapture(ILoggerProvider provider) => app.Services.GetRequiredService<ILoggerFactory>().AddProvider(provider);
         public IReadOnlyList<string> QcMutationRoutes => QcReachabilityWitness.Routes((Microsoft.AspNetCore.Routing.IEndpointRouteBuilder)app);
 
         public static async Task<PurchaseFlowHost> StartAsync(

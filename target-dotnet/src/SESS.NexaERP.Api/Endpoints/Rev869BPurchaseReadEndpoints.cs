@@ -159,7 +159,14 @@ public static partial class Rev869BPurchaseEndpoints
         var scopes = EffectiveScopes(db, user);
         if (CrossScope(user, scopes)) return query;
         var employeeId = user.EmployeeId!.Value;
-        return query.Where(x => scopes.Any(s => (!s.DepartmentId.HasValue || s.DepartmentId == x.RequestForQuotation!.RequestingDepartmentId) &&
+        var actorScopes = SESS.NexaERP.Infrastructure.Authorization.PurchaseActorScope.ActiveScopes(db, user, DateOnly.FromDateTime(DateTime.UtcNow));
+        var actorRole = user.RoleCode;
+        var actorJson = SESS.NexaERP.Infrastructure.Authorization.PurchaseActorScope.SnapshotActor(user);
+        return query.Where(x => actorScopes.Any(s => s.CompanyId == x.CompanyId &&
+            (!s.WarehouseId.HasValue || s.WarehouseId == x.RequestForQuotation!.DeliveryWarehouseId) && !s.RackBinId.HasValue &&
+            (!s.OwnRecordsOnly || x.OwnerEmployeeId == employeeId)) &&
+            (x.ApprovalCycle > 0 && EF.Functions.JsonContains(x.ApprovalWorkflowSnapshotJson, actorJson) ||
+             db.PurchaseTransactionApprovalHistories.Any(h => h.CompanyId == x.CompanyId && h.CommercialComparisonId == x.Id && h.ResolvedEmployeeId == employeeId && h.ResolvedRoleCode == actorRole && h.StepNumber > 0)) || scopes.Any(s => (!s.DepartmentId.HasValue || s.DepartmentId == x.RequestForQuotation!.RequestingDepartmentId) &&
             (!s.WarehouseId.HasValue || s.WarehouseId == x.RequestForQuotation!.DeliveryWarehouseId) && !s.RackBinId.HasValue && (!s.OwnRecordsOnly || x.OwnerEmployeeId == employeeId)));
     }
 
@@ -170,7 +177,14 @@ public static partial class Rev869BPurchaseEndpoints
         var scopes = EffectiveScopes(db, user);
         if (CrossScope(user, scopes)) return query;
         var employeeId = user.EmployeeId!.Value;
-        return query.Where(x => scopes.Any(s => (!s.DepartmentId.HasValue || s.DepartmentId == x.RequestingDepartmentId) &&
+        var actorScopes = SESS.NexaERP.Infrastructure.Authorization.PurchaseActorScope.ActiveScopes(db, user, DateOnly.FromDateTime(DateTime.UtcNow));
+        var actorRole = user.RoleCode;
+        var actorJson = SESS.NexaERP.Infrastructure.Authorization.PurchaseActorScope.SnapshotActor(user);
+        return query.Where(x => actorScopes.Any(s => s.CompanyId == x.CompanyId &&
+            (!s.WarehouseId.HasValue || s.WarehouseId == x.DeliveryWarehouseId) && !s.RackBinId.HasValue &&
+            (!s.OwnRecordsOnly || x.OwnerEmployeeId == employeeId)) &&
+            (x.ApprovalCycle > 0 && EF.Functions.JsonContains(x.ApprovalWorkflowSnapshotJson, actorJson) ||
+             db.PurchaseOrderHistories.Any(h => h.CompanyId == x.CompanyId && h.PurchaseOrderId == x.Id && h.ResolvedEmployeeId == employeeId && h.ResolvedRoleCode == actorRole && h.StepNumber > 0)) || scopes.Any(s => (!s.DepartmentId.HasValue || s.DepartmentId == x.RequestingDepartmentId) &&
             (!s.WarehouseId.HasValue || s.WarehouseId == x.DeliveryWarehouseId) && !s.RackBinId.HasValue && (!s.OwnRecordsOnly || x.OwnerEmployeeId == employeeId)));
     }
 

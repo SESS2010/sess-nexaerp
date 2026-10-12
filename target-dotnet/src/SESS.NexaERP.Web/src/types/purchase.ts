@@ -619,6 +619,21 @@ export interface StockCheckLocationRequest {
   RackBinCode: string | null
 }
 
+export interface StockCheckPurchaseRequisitionDetail {
+  PrNumber: string
+  Status: string
+  Version: number
+  DeliveryWarehouseCode: string
+  RequestingDepartment: string
+  RequesterEmployeeCode: string
+  RequiredByDate: string
+  Lines: {
+    LineNumber: number; ItemCode: string; ItemName: string; Uom: string; RequestedQuantity: number
+    OnHand: number; ActiveReserved: number; Available: number
+    ReservedQuantity: number; ShortageQuantity: number; HandoffQuantity: number; LineStatus: string
+  }[]
+}
+
 export interface StockCheckRequest {
   Remarks: string
   Version: number

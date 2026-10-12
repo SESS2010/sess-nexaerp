@@ -97,7 +97,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             var expectedPo = context.Band switch { "LOW" => 4720m, "TD" => 5900m, _ => 118000.01m };
             await using var source = new NexaErpDbContext(context.Options);
             var company = await source.Companies.SingleAsync(x => x.Code == "SESS_PVT_LTD");
-            var employee = await source.Employees.SingleAsync(x => x.EmployeeCode == "SESS-15");
+            var employee = await source.Employees.SingleAsync(x => x.EmployeeCode == R1PurchaseSupportEmployeeCode);
             var assignments = await source.EmployeeRoleAssignments.AsNoTracking().Include(x => x.Role)
                 .Where(x => x.CompanyId == company.Id && x.EmployeeId == employee.Id &&
                     x.EffectiveTo == null).ToListAsync();
@@ -201,7 +201,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         }, mixedRun: async context =>
         {
             var actor = await BankAdviceActor(context.Options);
-            var employee = await Query(context.Options, db => db.Employees.Where(x => x.EmployeeCode == "SESS-15").Select(x => x.Id).SingleAsync());
+            var employee = await Query(context.Options, db => db.Employees.Where(x => x.EmployeeCode == R1PurchaseSupportEmployeeCode).Select(x => x.Id).SingleAsync());
             var subject = await Query(context.Options, db => db.EmployeeIdentityMappings
                 .Where(x => x.EmployeeId == employee && x.IsActive && x.CompanyId == MultiCompanyFoundationSeedData.SessPvtLtdId)
                 .Select(x => x.Subject).SingleAsync());

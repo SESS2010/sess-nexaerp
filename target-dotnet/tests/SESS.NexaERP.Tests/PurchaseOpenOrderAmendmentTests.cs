@@ -20,7 +20,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
     {
         await using var source=new NexaErpDbContext(options);
         var company=await source.Companies.SingleAsync(x=>x.Code=="SESS_PVT_LTD");
-        var employee=await source.Employees.SingleAsync(x=>x.EmployeeCode=="SESS-15");
+        var employee=await source.Employees.SingleAsync(x=>x.EmployeeCode==R1PurchaseSupportEmployeeCode);
         var assignments=await source.EmployeeRoleAssignments.AsNoTracking().Include(x=>x.Role)
             .Where(x=>x.CompanyId==company.Id&&x.EmployeeId==employee.Id&&x.EffectiveTo==null).ToListAsync();
         var user=new WorkloadWitnessUser(employee.Id,

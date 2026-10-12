@@ -1,20 +1,23 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
-  getPurchaseRequisition,
+  getStockCheckPurchaseRequisition,
   listRackBins,
   listStockCheckRequisitions,
   newIdempotencyKey,
   stockCheckPurchaseRequisition,
 } from '../../api/purchase'
 import type {
-  PurchaseRequisitionDetail,
+  StockCheckPurchaseRequisitionDetail,
   PurchaseRequisitionSummary,
   RackBinSummary,
 } from '../../types/purchase'
 import { StatusBadge } from '../employees/StatusBadge'
 import { ErrorAlert } from '../../components/ErrorAlert'
 import { formatDate } from '../purchase/PurchaseRequisitionListPage'
+import { runStockCheckFlow } from './stockCheckFlow'
+import { ScreenLifecycle } from '../purchase/screenLifecycle'
+import { sessionScopeKey } from '../purchase/quotationDraft'
 import { PAGE_KEYS, useSession } from '../auth/SessionContext'
 
 interface LineLocation {
@@ -34,13 +37,16 @@ interface LineLocation {
 export function StockCheckPage() {
   const { prNumber = '' } = useParams()
   const navigate = useNavigate()
-  const { can } = useSession()
+  const { me, can } = useSession()
+  const scope = sessionScopeKey(me)
+  const lifecycle = useRef(new ScreenLifecycle()).current
+  const detailOwner = useRef('')
 
   const [queue, setQueue] = useState<PurchaseRequisitionSummary[]>([])
   const [queueTotal, setQueueTotal] = useState(0)
   const [queueError, setQueueError] = useState<unknown>(null)
 
-  const [detail, setDetail] = useState<PurchaseRequisitionDetail | null>(null)
+  const [detail, setDetail] = useState<StockCheckPurchaseRequisitionDetail | null>(null)
   const [locations, setLocations] = useState<LineLocation[]>([])
   const [bins, setBins] = useState<Record<string, RackBinSummary[]>>({})
   const [binsUnavailable, setBinsUnavailable] = useState(false)
@@ -50,20 +56,33 @@ export function StockCheckPage() {
   const [error, setError] = useState<unknown>(null)
   const [notice, setNotice] = useState('')
 
+  lifecycle.bindBusy('stock', setBusy)
+  useEffect(() => { lifecycle.mount(); return () => lifecycle.unmount() }, [lifecycle])
+  useEffect(() => {
+    lifecycle.changeScope()
+    lifecycle.setTarget('stock', scope + '|' + prNumber)
+    detailOwner.current = ''
+    setDetail(null); setLocations([]); setBins({}); setBinsUnavailable(false); setRemarks('')
+    setQueue([]); setQueueTotal(0); setError(null); setNotice('')
+  }, [scope, prNumber, lifecycle])
+
   const loadQueue = useCallback(async () => {
+    const isLive = lifecycle.begin()
     setQueueError(null)
     try {
       // GET /stores/stock-check/requisitions → stores.stock-check:verify. Stores
       // has no purchase.requisitions:view, so the Purchase list endpoint 403s.
       const page = await listStockCheckRequisitions({ page: 1, pageSize: 50, status: 'StockCheckPending', sortBy: 'prnumber', sortDirection: 'asc' })
+      if (!isLive()) return
       setQueue(page.Items)
       setQueueTotal(page.TotalCount)
     } catch (err) {
+      if (!isLive()) return
       setQueue([])
       setQueueTotal(0)
       setQueueError(err)
     }
-  }, [])
+  }, [scope, prNumber, lifecycle])
 
   useEffect(() => {
     void loadQueue()
@@ -71,33 +90,38 @@ export function StockCheckPage() {
 
   const loadBins = useCallback(async (warehouseCode: string) => {
     if (!warehouseCode || bins[warehouseCode]) return
+    const isLive = lifecycle.begin()
     try {
       const page = await listRackBins(warehouseCode)
+      if (!isLive()) return
       setBins((prev) => ({ ...prev, [warehouseCode]: page.Items.filter((bin) => bin.IsActive) }))
     } catch {
+      if (!isLive()) return
       // No masters.rack-bins permission: fall back to typing the bin code.
       setBinsUnavailable(true)
     }
-  }, [bins])
+  }, [bins, scope, lifecycle])
 
   useEffect(() => {
     if (!prNumber) { setDetail(null); return }
     let cancelled = false
+    const isLive = lifecycle.begin('stock')
     setLoading(true)
     setError(null)
     setNotice('')
-    getPurchaseRequisition(prNumber)
+    getStockCheckPurchaseRequisition(prNumber)
       .then((loaded) => {
-        if (cancelled) return
+        if (cancelled || !isLive()) return
+        detailOwner.current = scope + '|' + prNumber
         setDetail(loaded)
         setLocations(loaded.Lines.map((line) => ({ lineNumber: line.LineNumber, warehouseCode: loaded.DeliveryWarehouseCode, rackBinCode: '' })))
         void loadBins(loaded.DeliveryWarehouseCode)
       })
-      .catch((err) => { if (!cancelled) { setDetail(null); setError(err) } })
-      .finally(() => { if (!cancelled) setLoading(false) })
+      .catch((err) => { if (!cancelled && isLive()) { setDetail(null); setError(err) } })
+      .finally(() => { if (!cancelled && isLive()) setLoading(false) })
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [prNumber])
+  }, [prNumber, scope])
 
   const setLocation = (index: number, patch: Partial<LineLocation>) => {
     setLocations((prev) => prev.map((row, i) => (i === index ? { ...row, ...patch } : row)))
@@ -105,7 +129,7 @@ export function StockCheckPage() {
   }
 
   const submit = async () => {
-    if (!detail) return
+    if (!detail || detailOwner.current !== scope + '|' + prNumber || busy) return
     const missing = locations.filter((row) => !row.warehouseCode.trim() || !row.rackBinCode.trim())
     if (missing.length > 0) {
       setError(`Line ${missing.map((row) => row.lineNumber).join(', ')}: warehouse and a physical rack/bin are required — the reservation needs a location.`)
@@ -116,9 +140,9 @@ export function StockCheckPage() {
       return
     }
     setError(null)
-    setBusy(true)
+    const action = lifecycle.startAction('stock')
     try {
-      const result = await stockCheckPurchaseRequisition(detail.PrNumber, {
+      const outcome = await runStockCheckFlow({ post: stockCheckPurchaseRequisition, read: getStockCheckPurchaseRequisition }, detail.PrNumber, {
         Remarks: remarks.trim(),
         Version: detail.Version,
         IdempotencyKey: newIdempotencyKey('stock-check'),
@@ -127,25 +151,23 @@ export function StockCheckPage() {
           WarehouseCode: row.warehouseCode.trim().toUpperCase(),
           RackBinCode: row.rackBinCode.trim().toUpperCase(),
         })),
-      })
-      // The POST answers with the check record only; the PR itself (status,
-      // reserved and shortage per line) is re-read so the outcome is exact.
-      const updated = await getPurchaseRequisition(detail.PrNumber)
+      }, action.isLive)
+      if (!outcome) return
+      const { result, updated } = outcome
       setDetail(updated)
       setNotice(`${result.CheckNumber} (${result.ResultStatus}). ${describeOutcome(updated)}`)
       setRemarks('')
       void loadQueue()
     } catch (err) {
-      setError(err)
+      if (action.isLive()) setError(err)
     } finally {
-      setBusy(false)
+      action.finish()
     }
   }
 
   const checked = detail !== null && detail.Status !== 'StockCheckPending'
   // POST /purchase/requisitions/{prNumber}/stock-check → stores.stock-check:verify
-  // (PageStockCheck in PurchaseRequisitionEndpoints.cs). No extra service role check;
-  // stores.stock-check is not an explicit-grant page, so full-control covers it.
+  // Dedicated reads and the action share active stores/company/warehouse authority.
   const canStockCheck = can(PAGE_KEYS.stockCheck, 'verify')
 
   return (
@@ -160,7 +182,7 @@ export function StockCheckPage() {
         {detail && (
           <div className="action-row">
             <StatusBadge value={detail.Status} />
-            <Link to={`/purchase/requisitions/${encodeURIComponent(detail.PrNumber)}`} className="btn btn-ghost">Open PR</Link>
+            {can('purchase.requisitions', 'view') && <Link to={`/purchase/requisitions/${encodeURIComponent(detail.PrNumber)}`} className="btn btn-ghost">Open PR</Link>}
           </div>
         )}
       </div>
@@ -229,7 +251,7 @@ export function StockCheckPage() {
                   const location = locations[index]
                   const options = location ? bins[location.warehouseCode] ?? [] : []
                   return (
-                    <tr key={line.Id}>
+                    <tr key={line.LineNumber}>
                       <td className="mono">{line.LineNumber}</td>
                       <td><span className="mono">{line.ItemCode}</span> — {line.ItemName}</td>
                       <td className="mono">{line.Uom}</td>
@@ -297,7 +319,7 @@ export function StockCheckPage() {
   )
 }
 
-function describeOutcome(pr: PurchaseRequisitionDetail): string {
+function describeOutcome(pr: StockCheckPurchaseRequisitionDetail): string {
   const shortage = pr.Lines.reduce((sum, line) => sum + (line.ShortageQuantity || 0), 0)
   const reserved = pr.Lines.reduce((sum, line) => sum + (line.ReservedQuantity || 0), 0)
   switch (pr.Status) {

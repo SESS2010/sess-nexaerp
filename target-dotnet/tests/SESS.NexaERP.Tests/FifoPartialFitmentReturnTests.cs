@@ -104,8 +104,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             WHERE "MaterialReturnLineId"={returnLineId}
             """).SingleAsync();
         // Restoration retains the original immutable PO-provisional issue cost, not the BOM reader projection.
-        // .10 * 4720 = 472; the original layer/consumption must not be repriced.
-        Assert.Equal(.10m,restoredQuantity); Assert.Equal(472m,restoredValue);
+        // .10 * 4000 = 400 (F32: recoverable GST excluded); the original layer/consumption must not be repriced.
+        Assert.Equal(.10m,restoredQuantity); Assert.Equal(400m,restoredValue);
         Assert.Equal(originalConsumptions,await db.FifoCostConsumptions.AsNoTracking().OrderBy(x=>x.Id)
             .Select(x=>new{x.Id,x.Quantity,x.UnitCost,x.ConsumedValue,x.ConsumedAt}).ToArrayAsync());
         Assert.Equal(originalLayers,await db.FifoInventoryCostLayers.AsNoTracking().OrderBy(x=>x.Id)
@@ -120,8 +120,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         user.Set(context.AccountsId,"SESS-14",Rev869ARoleCodes.AccountsManager);
         var fifoAfter=await Get<CompanyReportPage>(client,WitnessReportPath("/api/v1/reports/fifo-valuation"));
         Assert.Equal(2.68m,Assert.Single(fifoAfter.Totals).GetProperty("quantity").GetDecimal());
-        // FIFO report preserves its immutable layer plus freight: .10 * (4720 + 12).
-        Assert.Equal(.10m*4732m,fifoAfter.Totals.Single().GetProperty("value").GetDecimal()-
+        // FIFO report preserves its immutable layer plus freight: .10 * (4000 + 12).
+        Assert.Equal(.10m*4012m,fifoAfter.Totals.Single().GetProperty("value").GetDecimal()-
             fifoBefore.Totals.Single().GetProperty("value").GetDecimal());
         var output=Path.Combine(FindRepositoryRoot(),"local-evidence","item15");
         Directory.CreateDirectory(output);

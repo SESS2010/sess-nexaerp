@@ -37,6 +37,7 @@ import type {
   PurchaseOrderListItem,
   MaterialFollowUpListItem,
   StockCheckRequest,
+  StockCheckPurchaseRequisitionDetail,
   StockCheckResult,
   RackBinSummary,
 } from '../types/purchase'
@@ -66,6 +67,10 @@ export function listPurchaseRequisitions(
   if (query.sortBy) params.set('sortBy', query.sortBy)
   if (query.sortDirection) params.set('sortDirection', query.sortDirection)
   return api.getPaged<PurchaseRequisitionSummary>(`${PR_BASE}?${params.toString()}`)
+}
+
+export function getStockCheckPurchaseRequisition(prNumber: string): Promise<StockCheckPurchaseRequisitionDetail> {
+  return api.get<StockCheckPurchaseRequisitionDetail>(`/api/v1/stores/stock-check/requisitions/${encodeURIComponent(prNumber)}`)
 }
 
 export function getPurchaseRequisition(prNumber: string): Promise<PurchaseRequisitionDetail> {

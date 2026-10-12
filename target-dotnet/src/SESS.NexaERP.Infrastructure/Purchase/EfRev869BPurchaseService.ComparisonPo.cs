@@ -131,7 +131,8 @@ public sealed partial class EfRev869BPurchaseService
         var decision = approvalWorkflow.AuthorizeNextStep(c.ApprovalWorkflowSnapshotJson, c.ApprovalCycle,
             c.CompletedApprovalStepCount, c.CreatorEmployeeId, actor, user.RoleCodes, priorEmployee);
         SetApprovalActorRole(decision.ResolvedRoleCode);
-        await AuthorizeComparisonAsync(actor, c, ct);
+        var decisionRfq = await db.RequestForQuotations.AsNoTracking().SingleAsync(r => r.Id == c.RequestForQuotationId && r.OrganizationId == c.OrganizationId, ct);
+        await RequireAssignedDecisionScopeAsync(c.CompanyId, decisionRfq.DeliveryWarehouseId, c.OwnerEmployeeId, ct);
         next = action == "Approve" && !decision.CompletesDocument ? Rev869BStatuses.PendingApproval : next;
         if (c.RecommendedVendorQuotationId.HasValue && await db.QuotationTechnicalVerifications.AnyAsync(x => x.VerifierEmployeeId == actor && x.VendorQuotationLine!.VendorQuotationId == c.RecommendedVendorQuotationId, ct)) throw new UnauthorizedAccessException("Technical verifier cannot commercially approve the same quotation.");
         var remarks = RequiredRemarks(request.Remarks); var version = checked(request.Version + 1); Rev869BStatusContracts.RequireComparison(c.Status, next);
@@ -362,7 +363,7 @@ public sealed partial class EfRev869BPurchaseService
         var decision = approvalWorkflow.AuthorizeNextStep(po.ApprovalWorkflowSnapshotJson, po.ApprovalCycle,
             po.CompletedApprovalStepCount, po.CreatorEmployeeId, actor, user.RoleCodes, priorStepEmployee);
         SetApprovalActorRole(decision.ResolvedRoleCode);
-        await AuthorizePoAsync(actor, po, ct);
+        await RequireAssignedDecisionScopeAsync(po.CompanyId, po.DeliveryWarehouseId, po.OwnerEmployeeId, ct);
         next = approve && !decision.CompletesDocument ? Rev869BStatuses.PendingApproval : next;
         var remarks = RequiredRemarks(request.Remarks); var version = checked(request.Version + 1); Rev869BStatusContracts.RequirePurchaseOrder(po.Status, next);
         PurchaseOrder? prior = null;
