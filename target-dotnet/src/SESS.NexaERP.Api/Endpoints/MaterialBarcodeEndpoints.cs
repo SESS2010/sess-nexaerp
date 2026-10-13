@@ -51,14 +51,18 @@ public static class MaterialBarcodeEndpoints
             if (request is null) return Results.NotFound(new { message = "Approved MIR not found in the current issue scope." });
             var lines = await db.MaterialIssueRequestLines.AsNoTracking().Where(l => l.MaterialIssueRequestId == request.Id && l.CompanyId == request.CompanyId)
                 .Select(l => new { l.Id, l.ItemId, l.Item!.ItemCode, l.Item.Barcode, l.Item.SerialNumberTracking }).ToListAsync(ct);
+            // One request-local active-scope snapshot avoids a database round trip for every physical serial.
+            // The company/warehouse/rack predicates are unchanged; command authorization is still checked at Issue.
+            var serialScopes = await scopes.Where(scope => scope.CompanyId == request.CompanyId)
+                .Select(scope => new { scope.WarehouseId, scope.RackBinId }).ToListAsync(ct);
             var result = new List<Candidate>();
             foreach (var line in lines)
             {
                 var serials = new List<AvailableMaterialIssueSerialView>();
                 foreach (var serial in await service.AvailableSerialsAsync(line.Id, ct))
-                    if (serial.AvailableQuantity >= 1 && await scopes.AnyAsync(scope => scope.CompanyId == request.CompanyId &&
+                    if (serial.AvailableQuantity >= 1 && serialScopes.Any(scope =>
                         (!scope.WarehouseId.HasValue || scope.WarehouseId == serial.WarehouseId) &&
-                        (!scope.RackBinId.HasValue || scope.RackBinId == serial.RackBinId), ct)) serials.Add(serial);
+                        (!scope.RackBinId.HasValue || scope.RackBinId == serial.RackBinId))) serials.Add(serial);
                 var requiresSerial = line.SerialNumberTracking || serials.Count > 0;
                 result.Add(new(line.Id.ToString(), line.ItemId, line.ItemCode, line.Barcode, null, null, requiresSerial));
                 foreach (var serial in serials)
