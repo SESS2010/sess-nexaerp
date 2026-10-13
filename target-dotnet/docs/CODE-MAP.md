@@ -566,3 +566,20 @@ Never execute or package `tools/identity/Repair-ApproverOtpFlow.ps1`. See [tools
 | REV869B | RFQ, quotation, comparison, PO, material follow-up; later controlled mutation/security work | `Domain/Purchase/Rev869BPurchaseTransactions.cs`, `Purchase/EfRev869BPurchaseService*.cs`, `NexaErpDbContext.Rev869B.cs`; retirement: `docs/installation/retired-rev869b-project-removal.md` |
 
 Historical reports are evidence, not current business-rule authority. Frozen schema and answers take precedence. [R2 rename proposal](R2-RENAME-PLAN.md) lists semantic filename proposals without executing them. [Root clutter proposal](ROOT-CLUTTER-REVIEW.md) separates generated output from evidence and fixtures.
+
+### RC2.5 barcode scanning and labels (feature branch)
+Select an eligible item or serial within the current document, company and custody; count bulk scans locally, then use the existing explicit workflow action. Printing uses existing View and Print grants.
+
+| Layer | Files / tables |
+|---|---|
+| Frontend | `features/barcodes/BarcodeScanField.tsx`, `barcodeScan.ts`, `barcodeSession.ts`, `quantityScanCapture.ts`, `scanReadCache.ts`, `issueScanDraft.ts`, `returnScanDraft.ts`; wiring in `GoodsReceiptFormModal.tsx`, `MaterialIssueRequestFormModal.tsx`, `MaterialIssueFormModal.tsx`, `MaterialReturnFormModal.tsx`, `StockCheckPage.tsx` |
+| Labels | `features/barcodes/BarcodeLabelDialog.tsx`, `barcodeLabels.ts`, `grnLotCode.ts`; item, GRN detail and stock-check rack actions |
+| Frontend API | `src/api/barcodes.ts` (GET-only contextual lookups; no command replay) |
+| API endpoints | `StoresGoodsReceiptEndpoints.Barcode.cs`, `MaterialBarcodeEndpoints.cs`, `StockCheckBarcodeEndpoints.cs`, `RackBarcodeLabelEndpoints.cs`, `BarcodeStockLotCandidates.cs`; active scope helper `Security/BarcodeScope.cs` |
+| Application | `Stores/GrnLotBarcode.cs` encodes company-qualified durable lot labels |
+| Existing DB data | `items`, gate/GRN lines and lots, inventory serials/balances, MIR/issue lines, warehouses/rack bins, effective identity/company/scope and page grants; no new table or migration |
+| Import | `MasterDataWorkbookService.cs` refuses non-text barcode cells while preserving text leading zeros |
+| Tests | `features/barcodes/*.test.ts`, `api/barcodes.test.ts`, `GrnLotBarcodeTests.cs`, `ReceiptBarcodeScopeTests.cs`, barcode assertions in `PurchaseFlowEndToEndPostgreSqlTests.cs`, text-cell regressions in `ItemImportV2Tests.cs` |
+| F23 / F26 | `purchase/purchaseActionVisibility.ts` and tests; comparison/PO actions respect current status/version, with actual PO-screen tests in `purchaseOrderActions.test.ts` |
+
+This entry is navigation, not installed-system or hardware acceptance. Barcode commissioning must witness scanner suffix safety and the 50x25/A4 printed labels on the actual devices.
