@@ -14,6 +14,7 @@ import { PAGE_KEYS, useSession } from '../auth/SessionContext'
 import { StatusBadge } from '../employees/StatusBadge'
 import { formatAmount } from './PurchaseRequisitionListPage'
 import { ErrorAlert } from '../../components/ErrorAlert'
+import { purchaseOrderActionAllowed } from './purchaseActionVisibility'
 import { HistoryPanel } from '../../components/HistoryPanel'
 
 type Pane = 'workflow' | 'amend' | 'cancel'
@@ -36,7 +37,7 @@ export function PurchaseOrderDetailPage() {
   const canAmend = can(PAGE_KEYS.purchaseOrders, 'update')
   const canCancel = can(PAGE_KEYS.purchaseOrders, 'cancel')
   const canPrint = can(PAGE_KEYS.purchaseOrders, 'print')
-  const canWorkflow = canSubmit || canApprove || canReject || canIssue
+
 
   const [po, setPo] = useState<PurchaseOrderDetail | null>(null)
   const [loading, setLoading] = useState(true)
@@ -83,7 +84,7 @@ export function PurchaseOrderDetailPage() {
   }
 
   const runSimple = async (action: 'submit' | 'issue', label: string) => {
-    if (!po || !guardRemarks(label)) return
+    if (!po || busy || !purchaseOrderActionAllowed(po.Status, po.IsCurrentVersion, action) || !guardRemarks(label)) return
     setError(null); setNotice(''); setBusy(action)
     try {
       const result = await actOnPurchaseOrder(po.PoNumber, action, {
@@ -91,6 +92,7 @@ export function PurchaseOrderDetailPage() {
         Version: po.Version,
         IdempotencyKey: newIdempotencyKey(`po-${action}`),
       })
+      setPo({ ...po, Status: result.Status, Version: result.Version })
       setRemarks('')
       setNotice(`${label} succeeded. Status is now ${result.Status}.`)
       void load()
@@ -102,7 +104,7 @@ export function PurchaseOrderDetailPage() {
   }
 
   const runApproval = async (action: 'approve' | 'reject', label: string) => {
-    if (!po || !guardRemarks(label)) return
+    if (!po || busy || !purchaseOrderActionAllowed(po.Status, po.IsCurrentVersion, action) || !guardRemarks(label)) return
     setError(null); setNotice(''); setBusy(action)
     try {
       const result = await approvePurchaseOrder(po.PoNumber, action, {
@@ -111,6 +113,7 @@ export function PurchaseOrderDetailPage() {
         ExpectedCurrentVersion: po.Version,
         IdempotencyKey: newIdempotencyKey(`po-${action}`),
       })
+      setPo({ ...po, Status: result.Status, Version: result.Version })
       setRemarks('')
       setNotice(`${label} succeeded. Status is now ${result.Status}.`)
       void load()
@@ -190,7 +193,16 @@ export function PurchaseOrderDetailPage() {
 
   // A pane is only offered when the session may act inside it; the selected
   // pane falls back to the first one that is still allowed.
-  const paneAllowed: Record<Pane, boolean> = { workflow: canWorkflow, amend: canAmend, cancel: canCancel }
+  const workflow = {
+    submit: canSubmit && purchaseOrderActionAllowed(po.Status, po.IsCurrentVersion, 'submit'),
+    approve: canApprove && purchaseOrderActionAllowed(po.Status, po.IsCurrentVersion, 'approve'),
+    reject: canReject && purchaseOrderActionAllowed(po.Status, po.IsCurrentVersion, 'reject'),
+    issue: canIssue && purchaseOrderActionAllowed(po.Status, po.IsCurrentVersion, 'issue'),
+  }
+  const canWorkflow = Object.values(workflow).some(Boolean)
+  const paneAllowed: Record<Pane, boolean> = { workflow: canWorkflow,
+    amend: canAmend && purchaseOrderActionAllowed(po.Status, po.IsCurrentVersion, 'amend'),
+    cancel: canCancel && purchaseOrderActionAllowed(po.Status, po.IsCurrentVersion, 'cancel') }
   const availablePanes = (['workflow', 'amend', 'cancel'] as Pane[]).filter((name) => paneAllowed[name])
   const activePane: Pane | null = paneAllowed[pane] ? pane : availablePanes[0] ?? null
 
@@ -312,10 +324,10 @@ export function PurchaseOrderDetailPage() {
           {canWorkflow && (
             <button type="button" className={`tab${activePane === 'workflow' ? ' active' : ''}`} onClick={() => setPane('workflow')}>Workflow</button>
           )}
-          {canAmend && (
+          {paneAllowed.amend && (
             <button type="button" className={`tab${activePane === 'amend' ? ' active' : ''}`} onClick={() => setPane('amend')}>Amend</button>
           )}
-          {canCancel && (
+          {paneAllowed.cancel && (
             <button type="button" className={`tab${activePane === 'cancel' ? ' active' : ''}`} onClick={() => setPane('cancel')}>Cancel</button>
           )}
         </div>
@@ -328,22 +340,22 @@ export function PurchaseOrderDetailPage() {
             <textarea className="input" rows={2} value={remarks} onChange={(e) => setRemarks(e.target.value)} />
           </label>
           <div className="action-row">
-            {canSubmit && (
+            {workflow.submit && (
               <button type="button" className="btn btn-ghost" disabled={!!busy} onClick={() => void runSimple('submit', 'Submit')}>
                 {busy === 'submit' ? 'Working…' : 'Submit for approval'}
               </button>
             )}
-            {canApprove && (
+            {workflow.approve && (
               <button type="button" className="btn btn-primary" disabled={!!busy} onClick={() => void runApproval('approve', 'Approve')}>
                 {busy === 'approve' ? 'Working…' : 'Approve'}
               </button>
             )}
-            {canReject && (
+            {workflow.reject && (
               <button type="button" className="btn btn-warn" disabled={!!busy} onClick={() => void runApproval('reject', 'Reject')}>
                 {busy === 'reject' ? 'Working…' : 'Reject'}
               </button>
             )}
-            {canIssue && (
+            {workflow.issue && (
               <button type="button" className="btn btn-primary" disabled={!!busy} onClick={() => void runSimple('issue', 'Issue')}>
                 {busy === 'issue' ? 'Working…' : 'Issue to vendor'}
               </button>
