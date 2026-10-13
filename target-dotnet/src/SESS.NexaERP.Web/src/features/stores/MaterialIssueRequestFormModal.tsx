@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
+import { getCompany } from '../../auth/authSession'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { listItems, listUoms } from '../../api/items'
 import { createMaterialIssueRequest, updateMaterialIssueRequest } from '../../api/materialIssues'
 import { listJobOrders } from '../../api/production'
@@ -12,6 +13,10 @@ import type { MaterialIssueRequestLineInput, MaterialIssueRequestView } from '..
 import { MIR_JOB_SITUATIONS, MIR_PURPOSES, MIR_SITUATIONS, MIR_SPARE_SALE_SITUATION } from '../../types/materialIssue'
 import { CustomerSearchSelect } from '../../components/CustomerSearchSelect'
 import { ErrorAlert } from '../../components/ErrorAlert'
+import { BarcodeScanField } from '../barcodes/BarcodeScanField'
+import { addScanQuantity } from '../barcodes/barcodeScan'
+import { getRequestScanItems } from '../../api/barcodes'
+import { barcodeSessionKey } from '../barcodes/barcodeSession'
 import { PAGE_KEYS, useSession } from '../auth/SessionContext'
 
 interface DraftLine {
@@ -95,7 +100,7 @@ export function MaterialIssueRequestFormModal({ mode, existing, onClose, onSaved
   const [customerName, setCustomerName] = useState('')
   const [sparePoLines, setSparePoLines] = useState<SparePoLine[]>([])
   const [sparePoLoading, setSparePoLoading] = useState(false)
-  const [lines, setLines] = useState<DraftLine[]>(() =>
+  const [lines, setLinesState] = useState<DraftLine[]>(() =>
     existing
       ? existing.Lines.map((line) => ({
           key: line.Id,
@@ -110,6 +115,12 @@ export function MaterialIssueRequestFormModal({ mode, existing, onClose, onSaved
         }))
       : [emptyLine()],
   )
+  const linesRef = useRef(lines)
+  const setLines = (change: DraftLine[] | ((current: DraftLine[]) => DraftLine[])) => {
+    const next = typeof change === 'function' ? change(linesRef.current) : change
+    linesRef.current = next; setLinesState(next)
+  }
+  const [scanWarning, setScanWarning] = useState('')
   const [uoms, setUoms] = useState<ReferenceLookup[]>([])
   const [itemSearch, setItemSearch] = useState('')
   const [itemOptions, setItemOptions] = useState<ItemSummary[]>([])
@@ -117,6 +128,9 @@ export function MaterialIssueRequestFormModal({ mode, existing, onClose, onSaved
   const [lookupError, setLookupError] = useState<unknown>(null)
   const [error, setError] = useState<unknown>(null)
   const [saving, setSaving] = useState(false)
+  const [barcodePending, setBarcodePending] = useState(false)
+  const barcodePendingRef = useRef(false)
+  const scanPendingChanged = (pending: boolean) => { barcodePendingRef.current = pending; setBarcodePending(pending) }
 
   useEffect(() => {
     // Optional: the picked item's BaseUomId sets the line UOM, so a role without
@@ -261,6 +275,8 @@ export function MaterialIssueRequestFormModal({ mode, existing, onClose, onSaved
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault()
+    if (!me || me.OrganizationId !== getCompany()) { setError('Wait for the selected company session before saving.'); return }
+    if (barcodePendingRef.current) { setError('Wait for the queued scans to finish before saving.'); return }
     setError(null)
     if (!me?.DepartmentId) {
       setError('Your session has no department, so the requesting department cannot be set.')
@@ -454,7 +470,32 @@ export function MaterialIssueRequestFormModal({ mode, existing, onClose, onSaved
             <span className="field-hint">Taken from your session; the requester cannot raise on behalf of another department.</span>
           </div>
 
-          <div className="field-wide form-section-title">Lines ({lines.filter((line) => line.itemId).length})</div>
+          <div className="field-wide">
+            <BarcodeScanField expectedCompany={me?.OrganizationId} companyContext={getCompany} onPendingChange={scanPendingChanged} target={barcodeSessionKey(me) + '|' + (existing?.Id ?? 'new') + '|' + mode + '|' + customerId + '|' + situation}
+              disabled={saving || !canSave} lookup={getRequestScanItems}
+              focusQuantity={(items) => {
+                if (items.length !== 1) return ''
+                const row = linesRef.current.find(line => line.itemId === items[0].ItemId)
+                return row ? '[data-mir-request-quantity="' + row.key + '"]' : ''
+              }}
+              onResolved={(items) => {
+                if (items.length !== 1) { setScanWarning(items.length ? 'Scan matches several items. Select the item explicitly; nothing was added.' : 'Unknown barcode / item code / serial, or item is not approved. Nothing was added.'); return }
+                const item = items[0]
+                const matches = linesRef.current.filter(line => line.itemId === item.ItemId)
+                if (matches.length > 1) { setScanWarning('This item appears on multiple MIR lines. Select the line explicitly; nothing was added.'); return }
+                if (matches.length && item.BaseUomId && matches[0].uomId !== item.BaseUomId) { setScanWarning('Unit scans require the item base UOM. Select it on this MIR line, or enter the converted quantity in keyboard mode.'); return }
+                const previous = matches[0] ?? linesRef.current.find(line => !line.itemId) ?? emptyLine()
+                const quantity = addScanQuantity(matches.length ? previous.quantity : '', Number.MAX_SAFE_INTEGER)
+                if (!quantity.changed) { setScanWarning(quantity.warning); return }
+                const poMatches = sparePoLines.filter(line => line.itemId === item.ItemId)
+                const row: DraftLine = { ...previous, itemId: item.ItemId, itemCode: item.ItemCode, itemName: item.Name,
+                  itemUom: item.Uom, uomId: item.BaseUomId ?? uomByCode.get(item.Uom.toUpperCase())?.Id ?? '',
+                  quantity: quantity.quantity, customerPoLineId: matches.length ? previous.customerPoLineId : spareSale && poMatches.length === 1 ? poMatches[0].lineId : '' }
+                setLines(current => current.some(line => line.key === row.key) ? current.map(line => line.key === row.key ? row : line) : [...current, row])
+                setScanWarning('')
+              }} />
+            {scanWarning && <span className="scan-warning" role="alert">{scanWarning}</span>}
+          </div>          <div className="field-wide form-section-title">Lines ({lines.filter((line) => line.itemId).length})</div>
 
           <div className="field field-wide">
             <span className="field-label">Find item</span>
@@ -538,7 +579,7 @@ export function MaterialIssueRequestFormModal({ mode, existing, onClose, onSaved
                       <input
                         className="input text-right mono"
                         inputMode="decimal"
-                        value={line.quantity}
+                        data-barcode-quantity data-mir-request-quantity={line.key} value={line.quantity}
                         onChange={(event) => setLine(line.key, { quantity: event.target.value })}
                       />
                     </td>
@@ -586,7 +627,7 @@ export function MaterialIssueRequestFormModal({ mode, existing, onClose, onSaved
 
           <div className="field-wide modal-actions">
             <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancel</button>
-            <button type="submit" className="btn btn-primary" disabled={saving || !canSave} title={canSave ? undefined : 'Your role cannot create material issue requests.'}>
+            <button type="submit" className="btn btn-primary" disabled={saving || barcodePending || !canSave} title={canSave ? undefined : 'Your role cannot create material issue requests.'}>
               {saving ? 'Saving…' : mode === 'create' ? 'Create draft' : 'Save changes'}
             </button>
           </div>
