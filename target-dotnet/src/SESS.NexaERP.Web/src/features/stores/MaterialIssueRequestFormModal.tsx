@@ -471,7 +471,7 @@ export function MaterialIssueRequestFormModal({ mode, existing, onClose, onSaved
           </div>
 
           <div className="field-wide">
-            <BarcodeScanField expectedCompany={me?.OrganizationId} companyContext={getCompany} onPendingChange={scanPendingChanged} target={barcodeSessionKey(me) + '|' + (existing?.Id ?? 'new') + '|' + mode + '|' + customerId + '|' + situation}
+            <BarcodeScanField expectedCompany={me?.OrganizationId} companyContext={getCompany} onPendingChange={scanPendingChanged} target={barcodeSessionKey(me) + '|' + (existing?.Id ?? 'new') + '|' + (existing?.Version ?? 0) + '|' + mode + '|' + customerId + '|' + situation}
               disabled={saving || !canSave} lookup={getRequestScanItems}
               focusQuantity={(items) => {
                 if (items.length !== 1) return ''

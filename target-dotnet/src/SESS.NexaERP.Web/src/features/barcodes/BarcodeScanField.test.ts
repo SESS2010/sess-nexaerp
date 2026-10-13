@@ -100,3 +100,15 @@ test('pending state stays true until the queued lookup finishes so the parent ca
   h.key(new QuantityInput(), 'Enter'); await tick(); assert.equal(pending.at(-1), true)
   resolve('ok'); await tick(); assert.equal(pending.at(-1), false); h.unmount()
 }))
+test('same document version change discards old lookup and its finish cannot release the new scan', async () => withDom(async h => {
+  let oldResolve!: (value: string) => void, newResolve!: (value: string) => void
+  const values: string[] = [], pending: boolean[] = []
+  const props = { onResolved: (value: string) => values.push(value), onPendingChange: (value: boolean) => pending.push(value), focusQuantity: () => '[data-barcode-quantity]' }
+  function scanner(node: any): any { if (Array.isArray(node)) return node.map(scanner).find(Boolean); if (!node || typeof node !== 'object') return; if (node.type === 'scanner') return node; return scanner(node.props?.children) }
+  const old = h.render({ ...props, target: 'PVT|M1|3', lookup: () => new Promise<string>(done => { oldResolve = done }) })
+  h.mount(); scanner(old).props.onScan('0001'); await tick()
+  const newer = h.render({ ...props, target: 'PVT|M1|4', lookup: () => new Promise<string>(done => { newResolve = done }) })
+  scanner(newer).props.onScan('0002'); await tick(); assert.equal(pending.at(-1), true)
+  oldResolve('old version'); await tick(); assert.equal(pending.at(-1), true); assert.deepEqual(values, [])
+  newResolve('new version'); await tick(); h.frames(); assert.deepEqual(values, ['new version']); assert.equal(pending.at(-1), false); assert.equal(h.focus(), 1); h.unmount()
+}))

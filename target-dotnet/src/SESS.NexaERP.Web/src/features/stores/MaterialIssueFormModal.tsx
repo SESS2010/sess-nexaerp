@@ -69,7 +69,7 @@ export function MaterialIssueFormModal({ mir, onClose, onIssued }: Props) {
   const barcodePendingRef = useRef(false)
   const scanPendingChanged = (pending: boolean) => { barcodePendingRef.current = pending; setBarcodePending(pending) }
 
-  const scanContext = barcodeSessionKey(me) + '|' + mir.Id
+  const scanContext = barcodeSessionKey(me) + '|' + mir.Id + '|' + mir.Version
   useEffect(() => { scansRef.current = []; setScans([]); setWarning(''); setSerialChoices([]); setSelectedLineId('') }, [scanContext])
 
   useEffect(() => {
@@ -189,7 +189,7 @@ export function MaterialIssueFormModal({ mir, onClose, onIssued }: Props) {
           </div>
 
           <div className="field-wide">
-            <BarcodeScanField expectedCompany={me?.OrganizationId} companyContext={getCompany} onPendingChange={scanPendingChanged} target={barcodeSessionKey(me) + '|' + mir.Id} disabled={saving || !canIssue || blocked}
+            <BarcodeScanField expectedCompany={me?.OrganizationId} companyContext={getCompany} onPendingChange={scanPendingChanged} target={barcodeSessionKey(me) + '|' + mir.Id + '|' + mir.Version} disabled={saving || !canIssue || blocked}
               lookup={async (text, context) => {
                 const candidates = await getIssueScanCandidates(mir.Id, context)
                 return { result: resolveScan(candidates, text, me?.OrganizationId), candidates }

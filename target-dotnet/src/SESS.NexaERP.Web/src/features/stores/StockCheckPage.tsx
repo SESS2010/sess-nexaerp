@@ -279,7 +279,7 @@ export function StockCheckPage() {
             </div>
           )}
 
-          {!checked && canStockCheck && <BarcodeScanField expectedCompany={me?.OrganizationId} companyContext={getCompany} onPendingChange={scanPendingChanged} target={barcodeScope + '|' + prNumber} disabled={busy}
+          {!checked && canStockCheck && <BarcodeScanField expectedCompany={me?.OrganizationId} companyContext={getCompany} onPendingChange={scanPendingChanged} target={barcodeScope + '|' + prNumber + '|' + detail.Version} disabled={busy}
             lookup={async (text, context) => resolveScan(await getStockCheckScanCandidates(prNumber, context), text, me?.OrganizationId)}
               focusQuantity={(result) => result.kind === 'match' ? '[data-stock-quantity="' + result.candidate.lineKey + '"]' : ''}
             onResolved={(result) => {

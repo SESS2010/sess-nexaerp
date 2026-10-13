@@ -119,7 +119,7 @@ export function GoodsReceiptFormModal({ mode, existing, onClose, onSaved }: Prop
   const [lines, setLines] = useState<DraftLine[]>([])
   const [activeLine, setActiveLine] = useState(0)
   const scanCounts = useRef<Record<string, string>>({})
-  const barcodeContext = barcodeSessionKey(me) + '|' + (gate?.Id ?? existing?.GateEntryId ?? '')
+  const barcodeContext = barcodeSessionKey(me) + '|' + (gate?.Id ?? existing?.GateEntryId ?? '') + '|' + (gate?.Version ?? existing?.Version ?? 0)
   useEffect(() => { scanCounts.current = {} }, [barcodeContext])
   const [scanMode, setScanMode] = useState(mode === 'create')
   const [serialWarning, setSerialWarning] = useState('')
@@ -532,7 +532,7 @@ export function GoodsReceiptFormModal({ mode, existing, onClose, onSaved }: Prop
                 </label>
               </div>
 
-              <BarcodeScanField expectedCompany={me?.OrganizationId} companyContext={getCompany} onPendingChange={scanPendingChanged} target={barcodeSessionKey(me) + '|' + (gate?.Id ?? existing?.GateEntryId ?? '')}
+              <BarcodeScanField expectedCompany={me?.OrganizationId} companyContext={getCompany} onPendingChange={scanPendingChanged} target={barcodeSessionKey(me) + '|' + (gate?.Id ?? existing?.GateEntryId ?? '') + '|' + (gate?.Version ?? existing?.Version ?? 0)}
                 disabled={saving || scanMode || !me || !can(PAGE_KEYS.grn, 'view') || !(gate?.Id ?? existing?.GateEntryId)}
                 lookup={async (text, context) => {
                   const candidates = await getReceiptScanCandidates(gate?.Id ?? existing!.GateEntryId, context)
@@ -554,7 +554,7 @@ export function GoodsReceiptFormModal({ mode, existing, onClose, onSaved }: Prop
                     setGateWarning('Line selected. Split lots or captured serials require explicit quantity reconciliation; scan did not change quantities.')
                   } else {
                     {
-                      const key = barcodeSessionKey(me) + '|' + (gate?.Id ?? existing?.GateEntryId ?? '') + '|' + result.candidate.lineKey
+                      const key = barcodeContext + '|' + result.candidate.lineKey
                       const next = addScanQuantity(scanCounts.current[key] ?? '', currentLine.quantity)
                       if (!next.changed) { setGateWarning(next.warning); return }
                       setLines((rows) => rows.map((row) => row.gateEntryLineId === result.candidate.lineKey

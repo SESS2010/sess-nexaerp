@@ -58,7 +58,7 @@ export function MaterialReturnFormModal({ issue, lines, onClose, onSaved }: Prop
   const updateDeclarations = (change: (current: Record<string, Declaration>) => Record<string, Declaration>) => {
     const next = change(declarationsRef.current); declarationsRef.current = next; setDeclarations(next)
   }
-  const scanContext = barcodeSessionKey(me) + '|' + issue.Id
+  const scanContext = barcodeSessionKey(me) + '|' + issue.Id + '|' + issue.Version
   useEffect(() => { declarationsRef.current = {}; setDeclarations({}); setWarning(''); setSelectedReturnLineId('') }, [scanContext])
   const [warning, setWarning] = useState('')
   const [selectedReturnLineId, setSelectedReturnLineId] = useState('')
