@@ -1,3 +1,4 @@
+import { getCompany } from '../../auth/authSession'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { fetchItemImageUrl, getItem, getItemVendors, runItemAction } from '../../api/items'
@@ -7,6 +8,7 @@ import { PAGE_KEYS, useSession } from '../auth/SessionContext'
 import { StatusBadge } from '../employees/StatusBadge'
 import { ItemFormModal } from './ItemFormModal'
 import { ItemActionIntent } from './itemActionIntent'
+import { BarcodeLabelDialog } from '../barcodes/BarcodeLabelDialog'
 import { ErrorAlert } from '../../components/ErrorAlert'
 
 // `permission` is the masters.items action the API requires for the route
@@ -31,6 +33,7 @@ export function ItemDetailPage() {
   const [error, setError] = useState<unknown>(null)
   const [busy, setBusy] = useState(false)
   const [editing, setEditing] = useState(false)
+  const [labelsOpen, setLabelsOpen] = useState(false)
   const intent = useRef(new ItemActionIntent())
   const inFlight = useRef(false)
   const context = JSON.stringify([me?.CompanyId, me?.EmployeeId, me?.IdentityIssuer, me?.IdentitySubject, itemCode])
@@ -93,6 +96,7 @@ export function ItemDetailPage() {
         </div>
         {detail && (
           <div className="action-row">
+            {(can(PAGE_KEYS.items, 'view') && can(PAGE_KEYS.items, 'print')) && <button type="button" className="btn btn-ghost" onClick={() => setLabelsOpen(true)}>Print item label</button>}
             {can(PAGE_KEYS.items, 'update') && (
               <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => setEditing(true)}>Edit</button>
             )}
@@ -105,7 +109,8 @@ export function ItemDetailPage() {
         )}
       </div>
 
-      <ErrorAlert error={error} onReload={() => void load()} fallback="The last action failed." />
+      {labelsOpen && detail && (can(PAGE_KEYS.items, 'view') && can(PAGE_KEYS.items, 'print')) && <BarcodeLabelDialog canPrintNow={() => !!me && getCompany() === me.OrganizationId && can(PAGE_KEYS.items, 'view') && can(PAGE_KEYS.items, 'print')} labels={[{ kind: 'ITEM', title: detail.ItemCode, detail: detail.Name,
+        value: detail.Barcode || detail.ItemCode, alternativeValue: detail.Barcode ? detail.ItemCode : undefined }]} onClose={() => setLabelsOpen(false)} />}      <ErrorAlert error={error} onReload={() => void load()} fallback="The last action failed." />
 
       {detail && (
         <div className="flex flex-col gap-5 lg:flex-row">

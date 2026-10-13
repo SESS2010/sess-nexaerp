@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.3",
+    "jsbarcode": "3.12.3",
     "lucide-react": "0.544.0",
     "oidc-client-ts": "^3.5.0",
     "react": "^19.1.0",
