@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
+import { getCompany } from '../../auth/authSession'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { createGoodsReceipt, updateGoodsReceipt } from '../../api/goodsReceipts'
 import { listGateEntries, newIdempotencyKey, getSourcePurchaseOrder } from '../../api/stores'
 import type { GateEntryResult, SourcePurchaseOrder } from '../../types/stores'
@@ -11,6 +12,10 @@ import type {
 import { DEFAULT_ISO_GRN_VERIFICATION, warrantyFromBillDate } from '../../types/goodsReceipt'
 import { ErrorAlert } from '../../components/ErrorAlert'
 import { ScannerInput } from '../../components/ScannerInput'
+import { BarcodeScanField } from '../barcodes/BarcodeScanField'
+import { resolveScan, addScanQuantity } from '../barcodes/barcodeScan'
+import { getReceiptScanCandidates } from '../../api/barcodes'
+import { barcodeSessionKey } from '../barcodes/barcodeSession'
 import { PAGE_KEYS, useSession } from '../auth/SessionContext'
 
 interface DraftLot {
@@ -97,7 +102,7 @@ interface Props {
  * visible before submit rather than re-implementing them.
  */
 export function GoodsReceiptFormModal({ mode, existing, onClose, onSaved }: Props) {
-  const { can } = useSession()
+  const { can, me } = useSession()
   const [gates, setGates] = useState<GateEntryResult[]>([])
   const [gatesTotal, setGatesTotal] = useState(0)
   const [gatesLoading, setGatesLoading] = useState(false)
@@ -113,9 +118,15 @@ export function GoodsReceiptFormModal({ mode, existing, onClose, onSaved }: Prop
 
   const [lines, setLines] = useState<DraftLine[]>([])
   const [activeLine, setActiveLine] = useState(0)
-  const [scanMode, setScanMode] = useState(true)
+  const scanCounts = useRef<Record<string, string>>({})
+  const barcodeContext = barcodeSessionKey(me) + '|' + (gate?.Id ?? existing?.GateEntryId ?? '')
+  useEffect(() => { scanCounts.current = {} }, [barcodeContext])
+  const [scanMode, setScanMode] = useState(mode === 'create')
   const [serialWarning, setSerialWarning] = useState('')
   const [saving, setSaving] = useState(false)
+  const [barcodePending, setBarcodePending] = useState(false)
+  const barcodePendingRef = useRef(false)
+  const scanPendingChanged = (pending: boolean) => { barcodePendingRef.current = pending; setBarcodePending(pending) }
   const [error, setError] = useState<unknown>(null)
 
   // Create: load the finalized gate entries the storekeeper can receive against.
@@ -170,6 +181,7 @@ export function GoodsReceiptFormModal({ mode, existing, onClose, onSaved }: Prop
 
   function selectGate(selected: GateEntryResult) {
     setGate(selected)
+    setScanMode(false)
     setGateWarning('')
     setActiveLine(0)
     setLines(
@@ -303,6 +315,8 @@ export function GoodsReceiptFormModal({ mode, existing, onClose, onSaved }: Prop
 
   const setLot = (lineIndex: number, lotIndex: number, patch: Partial<DraftLot>) => {
     const line = lines[lineIndex]
+    if (patch.quantity !== undefined && line.lots.length === 1 && line.serials.length === 0)
+      scanCounts.current[barcodeContext + '|' + line.gateEntryLineId] = patch.quantity
     setLine(lineIndex, { lots: line.lots.map((lot, i) => (i === lotIndex ? { ...lot, ...patch } : lot)) })
   }
 
@@ -356,6 +370,8 @@ export function GoodsReceiptFormModal({ mode, existing, onClose, onSaved }: Prop
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault()
+    if (!me || me.OrganizationId !== getCompany()) { setError('Wait for the selected company session before saving.'); return }
+    if (barcodePendingRef.current) { setError('Wait for the queued scans to finish before saving.'); return }
     setError(null)
     const problem = clientChecks()
     if (problem) {
@@ -421,8 +437,8 @@ export function GoodsReceiptFormModal({ mode, existing, onClose, onSaved }: Prop
         <div className="modal-header">
           <h2>{mode === 'create' ? 'New Goods Receipt' : `Edit ${existing?.GrnNumber}`}</h2>
           <label className="scan-toggle">
-            <input type="checkbox" checked={!scanMode} onChange={(event) => setScanMode(!event.target.checked)} />
-            Keyboard entry
+            <input type="checkbox" disabled={barcodePending} checked={scanMode} onChange={(event) => setScanMode(event.target.checked)} />
+            {gate || existing ? 'Capture inbound serials (physical serial only)' : 'Gate scanner focus'}
           </label>
         </div>
 
@@ -516,6 +532,39 @@ export function GoodsReceiptFormModal({ mode, existing, onClose, onSaved }: Prop
                 </label>
               </div>
 
+              <BarcodeScanField expectedCompany={me?.OrganizationId} companyContext={getCompany} onPendingChange={scanPendingChanged} target={barcodeSessionKey(me) + '|' + (gate?.Id ?? existing?.GateEntryId ?? '')}
+                disabled={saving || scanMode || !me || !can(PAGE_KEYS.grn, 'view') || !(gate?.Id ?? existing?.GateEntryId)}
+                lookup={async (text, context) => {
+                  const candidates = await getReceiptScanCandidates(gate?.Id ?? existing!.GateEntryId, context)
+                  const draftSerials = lines.flatMap(line => {
+                    const item = candidates.find(candidate => candidate.lineKey === line.gateEntryLineId && !candidate.inventorySerialId)
+                    return item ? line.serials.filter(serial => !candidates.some(candidate => candidate.lineKey === line.gateEntryLineId && candidate.storedSerialNumber === serial.stored)).map(serial => ({ ...item, inventorySerialId: 'draft:' + line.gateEntryLineId + ':' + serial.stored,
+                      storedSerialNumber: serial.stored })) : []
+                  })
+                  return resolveScan([...candidates, ...draftSerials], text, me?.OrganizationId)
+                }}
+                focusQuantity={(result) => result.kind === 'match' ? '[data-grn-quantity="' + result.candidate.lineKey + '"]' : ''}
+              onResolved={(result) => {
+                  if (result.kind !== 'match') { setGateWarning(result.message + ' For a new manufacturer serial, select its item first, then enable inbound serial capture.'); return }
+                  const index = lines.findIndex((row) => row.gateEntryLineId === result.candidate.lineKey)
+                  if (index < 0) { setGateWarning('Scanned line is no longer on this GRN. Reload before scanning.'); return }
+                  setActiveLine(index)
+                  const currentLine = lines[index]
+                  if (currentLine.lots.length !== 1 || currentLine.serials.length > 0) {
+                    setGateWarning('Line selected. Split lots or captured serials require explicit quantity reconciliation; scan did not change quantities.')
+                  } else {
+                    {
+                      const key = barcodeSessionKey(me) + '|' + (gate?.Id ?? existing?.GateEntryId ?? '') + '|' + result.candidate.lineKey
+                      const next = addScanQuantity(scanCounts.current[key] ?? '', currentLine.quantity)
+                      if (!next.changed) { setGateWarning(next.warning); return }
+                      setLines((rows) => rows.map((row) => row.gateEntryLineId === result.candidate.lineKey
+                        ? { ...row, lots: row.lots.map((lot) => ({ ...lot, quantity: next.quantity })) } : row))
+                      setGateWarning('')
+                      scanCounts.current[key] = next.quantity
+                    }
+                  }
+                }} />
+              <p className="field-hint">Item scans start a unit tally on a single-lot line. Lots must still sum to the gate-delivered quantity before Save. For serial-tracked goods, enable inbound serial capture only after selecting the item.</p>
               {/* Step 2 — serial scanning. One box, always focused; scans land on the active line. */}
               {lines.length > 0 && (
                 <div className="scan-panel">
@@ -553,7 +602,7 @@ export function GoodsReceiptFormModal({ mode, existing, onClose, onSaved }: Prop
                     <div key={lot.lotOrdinal} className="lot-row">
                       <span className="field-label">Lot {lot.lotOrdinal}</span>
                       <input className="input" type="number" min="0" step="any" placeholder="Qty" title="Lot quantity"
-                        value={lot.quantity} onChange={(event) => setLot(lineIndex, lotIndex, { quantity: event.target.value })} />
+                        data-barcode-quantity data-grn-quantity={draftLine.gateEntryLineId} value={lot.quantity} onChange={(event) => setLot(lineIndex, lotIndex, { quantity: event.target.value })} />
                       <input className="input" placeholder="Supplier lot no."
                         value={lot.supplierLotNumber} onChange={(event) => setLot(lineIndex, lotIndex, { supplierLotNumber: event.target.value })} />
                       <input className="input" placeholder="Mfr lot no."
@@ -614,7 +663,7 @@ export function GoodsReceiptFormModal({ mode, existing, onClose, onSaved }: Prop
           <div className="modal-actions">
             <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancel</button>
             {canSave && (
-              <button type="submit" className="btn btn-primary" disabled={saving || (mode === 'create' && !gate)}>
+              <button type="submit" className="btn btn-primary" disabled={saving || barcodePending || (mode === 'create' && !gate)}>
                 {saving ? 'Saving…' : mode === 'create' ? 'Create draft GRN' : 'Save changes'}
               </button>
             )}
