@@ -1,3 +1,4 @@
+import { getCompany } from '../../auth/authSession'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
@@ -18,6 +19,12 @@ import { formatDate } from '../purchase/PurchaseRequisitionListPage'
 import { runStockCheckFlow } from './stockCheckFlow'
 import { ScreenLifecycle } from '../purchase/screenLifecycle'
 import { sessionScopeKey } from '../purchase/quotationDraft'
+import { barcodeSessionKey } from '../barcodes/barcodeSession'
+import { BarcodeScanField } from '../barcodes/BarcodeScanField'
+import { resolveScan, addScanQuantity } from '../barcodes/barcodeScan'
+import { BarcodeLabelDialog } from '../barcodes/BarcodeLabelDialog'
+import type { BarcodeLabel } from '../barcodes/barcodeLabels'
+import { getRackBarcodeLabels, getStockCheckScanCandidates } from '../../api/barcodes'
 import { PAGE_KEYS, useSession } from '../auth/SessionContext'
 
 interface LineLocation {
@@ -39,6 +46,7 @@ export function StockCheckPage() {
   const navigate = useNavigate()
   const { me, can } = useSession()
   const scope = sessionScopeKey(me)
+  const barcodeScope = barcodeSessionKey(me)
   const lifecycle = useRef(new ScreenLifecycle()).current
   const detailOwner = useRef('')
 
@@ -53,8 +61,18 @@ export function StockCheckPage() {
   const [remarks, setRemarks] = useState('')
   const [loading, setLoading] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [barcodePending, setBarcodePending] = useState(false)
+  const barcodePendingRef = useRef(false)
+  const scanPendingChanged = (pending: boolean) => { barcodePendingRef.current = pending; setBarcodePending(pending) }
   const [error, setError] = useState<unknown>(null)
   const [notice, setNotice] = useState('')
+  const [scanTally, setScanTally] = useState<Record<string, string>>({})
+  const tallyRef = useRef<Record<string, string>>({})
+  const countedSerials = useRef(new Set<string>())
+  const [scanWarning, setScanWarning] = useState('')
+  const [rackLabels, setRackLabels] = useState<BarcodeLabel[] | null>(null)
+  const [labelBusy, setLabelBusy] = useState(false)
+  const labelOwner = useRef(0)
 
   lifecycle.bindBusy('stock', setBusy)
   useEffect(() => { lifecycle.mount(); return () => lifecycle.unmount() }, [lifecycle])
@@ -62,10 +80,16 @@ export function StockCheckPage() {
     lifecycle.changeScope()
     lifecycle.setTarget('stock', scope + '|' + prNumber)
     detailOwner.current = ''
+    labelOwner.current++; setRackLabels(null); setLabelBusy(false)
+    countedSerials.current.clear(); tallyRef.current = {}; setScanTally({}); setScanWarning('')
     setDetail(null); setLocations([]); setBins({}); setBinsUnavailable(false); setRemarks('')
     setQueue([]); setQueueTotal(0); setError(null); setNotice('')
   }, [scope, prNumber, lifecycle])
 
+  useEffect(() => {
+    countedSerials.current.clear(); tallyRef.current = {}; setScanTally({}); setScanWarning('')
+    labelOwner.current++; setRackLabels(null); setLabelBusy(false)
+  }, [barcodeScope])
   const loadQueue = useCallback(async () => {
     const isLive = lifecycle.begin()
     setQueueError(null)
@@ -129,6 +153,8 @@ export function StockCheckPage() {
   }
 
   const submit = async () => {
+    if (!me || me.OrganizationId !== getCompany()) { setError('Wait for the selected company session before saving.'); return }
+    if (barcodePendingRef.current) { setError('Wait for the queued scans to finish before confirming stock check.'); return }
     if (!detail || detailOwner.current !== scope + '|' + prNumber || busy) return
     const missing = locations.filter((row) => !row.warehouseCode.trim() || !row.rackBinCode.trim())
     if (missing.length > 0) {
@@ -168,6 +194,20 @@ export function StockCheckPage() {
   const checked = detail !== null && detail.Status !== 'StockCheckPending'
   // POST /purchase/requisitions/{prNumber}/stock-check → stores.stock-check:verify
   // Dedicated reads and the action share active stores/company/warehouse authority.
+  const loadRackLabels = async () => {
+    if (labelBusy || !(can('masters.rack-bins', 'view') && can('masters.rack-bins', 'print'))) return
+    const owner = ++labelOwner.current
+    setLabelBusy(true)
+    try {
+      const rows = await getRackBarcodeLabels()
+      if (labelOwner.current !== owner) return
+      if (!rows.length) { setError('No approved rack bins are printable in the selected company and scope.'); return }
+      setRackLabels(rows.map(row => ({ kind: 'RACK_BIN', title: row.BinCode,
+        detail: row.WarehouseCode + ' · ' + row.RackName, value: row.Barcode || row.BinCode, alternativeValue: row.Barcode ? row.BinCode : undefined })))
+    } catch (error) { if (labelOwner.current === owner) setError(error) }
+    finally { if (labelOwner.current === owner) setLabelBusy(false) }
+  }
+  useEffect(() => () => { labelOwner.current++ }, [])
   const canStockCheck = can(PAGE_KEYS.stockCheck, 'verify')
 
   return (
@@ -179,7 +219,8 @@ export function StockCheckPage() {
             Approved requisitions waiting for Stores to confirm on-hand stock ({queueTotal} pending) — reserved from the rack/bin you name, shortage goes to Purchase
           </p>
         </div>
-        {detail && (
+        {(can('masters.rack-bins', 'view') && can('masters.rack-bins', 'print')) && <button type="button" className="btn btn-ghost" disabled={labelBusy}
+          onClick={() => void loadRackLabels()}>{labelBusy ? 'Loading labels…' : 'Print rack-bin labels'}</button>}        {detail && (
           <div className="action-row">
             <StatusBadge value={detail.Status} />
             {can('purchase.requisitions', 'view') && <Link to={`/purchase/requisitions/${encodeURIComponent(detail.PrNumber)}`} className="btn btn-ghost">Open PR</Link>}
@@ -187,6 +228,7 @@ export function StockCheckPage() {
         )}
       </div>
 
+      {rackLabels && (can('masters.rack-bins', 'view') && can('masters.rack-bins', 'print')) && <BarcodeLabelDialog canPrintNow={() => !!me && getCompany() === me.OrganizationId && can('masters.rack-bins', 'view') && can('masters.rack-bins', 'print')} labels={rackLabels} onClose={() => setRackLabels(null)} />}
       <ErrorAlert error={queueError} onReload={() => void loadQueue()} fallback="Could not load the stock-check queue." />
 
       {!prNumber && (
@@ -224,7 +266,7 @@ export function StockCheckPage() {
       )}
 
       {detail && (
-        <>
+        <div data-barcode-surface>
           <p className="page-sub">
             <span className="mono">{detail.PrNumber}</span> · {detail.RequestingDepartment} · raised by <span className="mono">{detail.RequesterEmployeeCode}</span>
             {' · '}required by {formatDate(detail.RequiredByDate)} · delivery warehouse <span className="mono">{detail.DeliveryWarehouseCode}</span>
@@ -237,13 +279,28 @@ export function StockCheckPage() {
             </div>
           )}
 
-          <div className="table-wrap">
+          {!checked && canStockCheck && <BarcodeScanField expectedCompany={me?.OrganizationId} companyContext={getCompany} onPendingChange={scanPendingChanged} target={barcodeScope + '|' + prNumber} disabled={busy}
+            lookup={async (text, context) => resolveScan(await getStockCheckScanCandidates(prNumber, context), text, me?.OrganizationId)}
+              focusQuantity={(result) => result.kind === 'match' ? '[data-stock-quantity="' + result.candidate.lineKey + '"]' : ''}
+            onResolved={(result) => {
+              if (result.kind !== 'match') { setScanWarning(result.message); return }
+              if (result.candidate.inventorySerialId && countedSerials.current.has(result.candidate.inventorySerialId)) { setScanWarning('This physical serial is already in the local tally. Nothing was added.'); return }
+              const key = result.candidate.lineKey
+              const next = addScanQuantity(tallyRef.current[key] ?? '', Number.MAX_SAFE_INTEGER)
+              setScanWarning(next.warning)
+              if (!next.changed) return
+              if (result.candidate.inventorySerialId) countedSerials.current.add(result.candidate.inventorySerialId)
+              tallyRef.current = { ...tallyRef.current, [key]: next.quantity }
+              setScanTally(tallyRef.current)
+            }} />}
+          {scanWarning && <span className="scan-warning" role="alert">{scanWarning}</span>}
+          {!checked && <p className="field-hint">Scan tally is a local aid only. It does not change requested quantity, ERP on-hand stock or the stock-check posting.</p>}          <div className="table-wrap">
             <table className="table">
               <thead>
                 <tr>
                   <th>#</th><th>Item</th><th>UOM</th><th className="text-right">Requested</th>
                   <th className="text-right">On hand</th><th className="text-right">Available</th>
-                  <th>Warehouse *</th><th>Rack / Bin *</th><th>Line status</th>
+                  <th>Scan tally (local)</th><th>Warehouse *</th><th>Rack / Bin *</th><th>Line status</th>
                 </tr>
               </thead>
               <tbody>
@@ -258,7 +315,9 @@ export function StockCheckPage() {
                       <td className="text-right mono">{line.RequestedQuantity}</td>
                       <td className="text-right mono">{line.OnHand}</td>
                       <td className="text-right mono">{line.Available}</td>
-                      <td>
+                      <td><input className="input text-right mono" inputMode="decimal" data-barcode-quantity data-stock-quantity={line.LineNumber}
+                        disabled={busy || checked} value={scanTally[String(line.LineNumber)] ?? ''}
+                        onChange={(event) => { tallyRef.current = { ...tallyRef.current, [String(line.LineNumber)]: event.target.value }; setScanTally(tallyRef.current) }} /></td>                      <td>
                         {canStockCheck ? (
                           <input className="input mono" aria-label={`Line ${line.LineNumber} warehouse`} disabled={checked || busy}
                             value={location?.warehouseCode ?? ''} onChange={(event) => setLocation(index, { warehouseCode: event.target.value })} />
@@ -301,7 +360,7 @@ export function StockCheckPage() {
               <div className="modal-actions">
                 <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => navigate('/stores/stock-check')}>‹ Queue</button>
                 {canStockCheck && (
-                  <button type="button" className="btn btn-primary" disabled={busy} onClick={() => void submit()}>
+                  <button type="button" className="btn btn-primary" disabled={busy || barcodePending} onClick={() => void submit()}>
                     {busy ? 'Checking…' : 'Confirm stock check'}
                   </button>
                 )}
@@ -313,7 +372,7 @@ export function StockCheckPage() {
               <button type="button" className="btn btn-ghost" onClick={() => navigate('/stores/stock-check')}>‹ Back to queue</button>
             </div>
           )}
-        </>
+        </div>
       )}
     </div>
   )
