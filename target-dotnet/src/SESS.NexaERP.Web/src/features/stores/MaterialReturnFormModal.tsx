@@ -1,9 +1,14 @@
-import { useMemo, useState } from 'react'
+import { getCompany } from '../../auth/authSession'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { createMaterialReturn } from '../../api/materialIssues'
 import { newIdempotencyKey } from '../../api/stores'
 import type { MaterialIssueLineView, MaterialIssueView, MaterialReturnView } from '../../types/materialIssue'
 import { ErrorAlert } from '../../components/ErrorAlert'
-import { ScannerInput } from '../../components/ScannerInput'
+import { BarcodeScanField } from '../barcodes/BarcodeScanField'
+import { resolveScan } from '../barcodes/barcodeScan'
+import { incrementReturn } from '../barcodes/returnScanDraft'
+import { getReturnScanCandidates } from '../../api/barcodes'
+import { barcodeSessionKey } from '../barcodes/barcodeSession'
 import { PAGE_KEYS, useSession } from '../auth/SessionContext'
 
 /** An issue line with the item code resolved from the MIR line it was issued against. */
@@ -29,9 +34,8 @@ interface Declaration {
   stillHeld: string
 }
 
-function normalizeScan(value: string): string {
-  return value.replace(/[^A-Za-z0-9]/g, '').toUpperCase()
-}
+// Command validation follows the existing server rule; barcode lookup itself never strips punctuation.
+function normalizeScan(value: string): string { return value.replace(/[^A-Za-z0-9]/g, '').toUpperCase() }
 
 function nowLocal(): string {
   const date = new Date()
@@ -47,47 +51,39 @@ function nowLocal(): string {
  * only at fitment.
  */
 export function MaterialReturnFormModal({ issue, lines, onClose, onSaved }: Props) {
-  const { can } = useSession()
+  const { can, me } = useSession()
   const [declaredAt, setDeclaredAt] = useState(nowLocal())
   const [declarations, setDeclarations] = useState<Record<string, Declaration>>({})
-  const [scanMode, setScanMode] = useState(true)
+  const declarationsRef = useRef<Record<string, Declaration>>({})
+  const updateDeclarations = (change: (current: Record<string, Declaration>) => Record<string, Declaration>) => {
+    const next = change(declarationsRef.current); declarationsRef.current = next; setDeclarations(next)
+  }
+  const scanContext = barcodeSessionKey(me) + '|' + issue.Id
+  useEffect(() => { declarationsRef.current = {}; setDeclarations({}); setWarning(''); setSelectedReturnLineId('') }, [scanContext])
   const [warning, setWarning] = useState('')
+  const [selectedReturnLineId, setSelectedReturnLineId] = useState('')
   const [error, setError] = useState<unknown>(null)
   const [saving, setSaving] = useState(false)
+  const [barcodePending, setBarcodePending] = useState(false)
+  const barcodePendingRef = useRef(false)
+  const scanPendingChanged = (pending: boolean) => { barcodePendingRef.current = pending; setBarcodePending(pending) }
 
   const open = useMemo(() => lines.filter((row) => row.outstanding > 0), [lines])
 
   const declare = (row: IssuedLine, scanCode: string) =>
-    setDeclarations((current) => current[row.line.Id]
+    updateDeclarations((current) => current[row.line.Id]
       ? current
       : { ...current, [row.line.Id]: { scanCode, returned: String(row.outstanding), consumed: '0', stillHeld: '0' } })
 
-  // A serialized line must be declared with its exact serial, which the server
-  // checks against InventorySerial.StoredSerialNumber. Since 053a81e the line
-  // view carries StoredSerialNumber, so a serial scan is matched to its own
-  // line. Against an older API (no serial on the line) the scan is taken as
-  // the serial of the next undeclared serialized line and the server rejects
-  // a mismatch.
-  const onScan = (raw: string) => {
-    const code = normalizeScan(raw)
-    const bySerial = open.find((candidate) => candidate.line.StoredSerialNumber && normalizeScan(candidate.line.StoredSerialNumber) === code && !declarations[candidate.line.Id])
-    const byItem = bySerial ?? open.find((candidate) => normalizeScan(candidate.itemCode) === code && !declarations[candidate.line.Id])
-    const row = byItem ?? open.find((candidate) => candidate.line.InventorySerialId && !candidate.line.StoredSerialNumber && !declarations[candidate.line.Id])
-    if (!row) {
-      setWarning(`“${raw}” matches no undeclared line on ${issue.IssueNumber}.`)
-      return
-    }
-    setWarning(byItem || !row.line.InventorySerialId ? '' : `“${raw}” taken as the serial of line ${row.line.LineNumber}; correct it in the row if it belongs to another line.`)
-    declare(row, raw)
-  }
-
   const patch = (lineId: string, change: Partial<Declaration>) =>
-    setDeclarations((current) => ({ ...current, [lineId]: { ...current[lineId], ...change } }))
+    updateDeclarations((current) => ({ ...current, [lineId]: { ...current[lineId], ...change } }))
 
   const canCreate = can(PAGE_KEYS.materialReturns, 'create')
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault()
+    if (!me || me.OrganizationId !== getCompany()) { setError('Wait for the selected company session before saving.'); return }
+    if (barcodePendingRef.current) { setError('Wait for the queued scans to finish before saving.'); return }
     setError(null)
     const entries = Object.entries(declarations)
     if (entries.length === 0) { setError('Scan at least one issued item to declare it.'); return }
@@ -155,16 +151,21 @@ export function MaterialReturnFormModal({ issue, lines, onClose, onSaved }: Prop
           </div>
 
           <div className="field-wide">
-            <ScannerInput
-              label="Scan returned item"
-              placeholder="Item code barcode…"
-              scanMode={scanMode}
-              onScan={onScan}
-              warning={warning}
-              hint={`${Object.keys(declarations).length} of ${open.length} outstanding lines declared. Each line must account for its whole outstanding quantity.`}
-            />
-            <label className="field-hint"><input type="checkbox" checked={!scanMode} onChange={(event) => setScanMode(!event.target.checked)} /> Keyboard mode</label>
-          </div>
+            <BarcodeScanField expectedCompany={me?.OrganizationId} companyContext={getCompany} onPendingChange={scanPendingChanged} target={scanContext} disabled={saving || !canCreate}
+              lookup={async (text, context) => resolveScan((await getReturnScanCandidates(issue.Id, context)).filter(row => open.some(line => line.line.Id === row.lineKey)), text, me?.OrganizationId)}
+              focusQuantity={(result) => result.kind === 'match' ? '[data-return-quantity="' + result.candidate.lineKey + '"]' : ''}
+              onResolved={(result) => {
+                if (result.kind !== 'match') { setWarning(result.message); return }
+                const row = open.find(line => line.line.Id === result.candidate.lineKey)
+                if (!row) { setWarning('Issue custody changed. Reload before scanning.'); return }
+                setSelectedReturnLineId(row.line.Id)
+                if (result.candidate.requiresSerial) { setWarning('Serialized item selected. Scan its exact issued serial to declare a return; no quantity was added.'); return }
+                const next = incrementReturn(declarationsRef.current[row.line.Id], result.candidate.storedSerialNumber ?? row.itemCode,
+                  row.outstanding, row.line.InventorySerialId !== null)
+                setWarning(next.warning)
+                if (next.value && !next.warning) updateDeclarations(current => ({ ...current, [row.line.Id]: next.value! }))
+              }} />
+            {warning && <span className="scan-warning" role="alert">{warning}</span>}          </div>
 
           <div className="field-wide table-wrap">
             <table className="table">
@@ -190,14 +191,15 @@ export function MaterialReturnFormModal({ issue, lines, onClose, onSaved }: Prop
                       <td className="text-right mono">{row.outstanding}</td>
                       {declaration ? (
                         <>
-                          <td className="text-right"><input className="input text-right mono" inputMode="decimal" value={declaration.returned} onChange={(event) => patch(row.line.Id, { returned: event.target.value })} /></td>
+                          <td className="text-right"><input className="input text-right mono" inputMode="decimal" data-barcode-quantity data-return-quantity={row.line.Id} value={declaration.returned} onChange={(event) => patch(row.line.Id, { returned: event.target.value })} /></td>
                           <td className="text-right"><input className="input text-right mono" inputMode="decimal" value={declaration.consumed} onChange={(event) => patch(row.line.Id, { consumed: event.target.value })} /></td>
                           <td className="text-right"><input className="input text-right mono" inputMode="decimal" value={declaration.stillHeld} onChange={(event) => patch(row.line.Id, { stillHeld: event.target.value })} /></td>
-                          <td><button type="button" className="btn btn-ghost" onClick={() => setDeclarations((current) => { const next = { ...current }; delete next[row.line.Id]; return next })}>✕</button></td>
+                          <td><button type="button" className="btn btn-ghost" onClick={() => updateDeclarations((current) => { const next = { ...current }; delete next[row.line.Id]; return next })}>✕</button></td>
                         </>
                       ) : (
                         <>
-                          <td colSpan={3} className="field-hint">Scan to declare</td>
+                          <td colSpan={3} className="field-hint">{selectedReturnLineId === row.line.Id
+                            ? <input className="input text-right mono" readOnly data-barcode-quantity data-return-quantity={row.line.Id} value="" placeholder="Scan exact issued serial" /> : 'Scan to declare'}</td>
                           <td><button type="button" className="btn btn-ghost" onClick={() => declare(row, row.line.InventorySerialId ? '' : row.itemCode)}>{row.line.InventorySerialId ? 'Enter serial' : 'Declare without scan'}</button></td>
                         </>
                       )}
@@ -212,7 +214,7 @@ export function MaterialReturnFormModal({ issue, lines, onClose, onSaved }: Prop
 
           <div className="field-wide modal-actions">
             <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancel</button>
-            <button type="submit" className="btn btn-primary" disabled={saving || !canCreate} title={canCreate ? undefined : 'Your role cannot declare returns.'}>
+            <button type="submit" className="btn btn-primary" disabled={saving || barcodePending || !canCreate} title={canCreate ? undefined : 'Your role cannot declare returns.'}>
               {saving ? 'Declaring…' : 'Declare return'}
             </button>
           </div>
