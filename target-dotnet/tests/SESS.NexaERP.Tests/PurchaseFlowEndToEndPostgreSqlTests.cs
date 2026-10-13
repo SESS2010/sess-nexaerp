@@ -625,6 +625,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 await ProveSeededUomItemEditing(qcHost.Client, options, user, tdId, categoryId);
                 await ProveUnresolvedMasterImports(qcHost.Client, options, user, tdId, storesManagerId);
                 await ProveAccountsGrnReads(qcHost.Client, options, user, managerId, grns[0]);
+                await ProveReceiptBarcodeScope(qcHost.Client, options, user, storesId, secondReceiptOperatorId, managerId, storesManagerId, grns[0]);
                 await ProveStoresReturnInputs(qcHost.Client, options, user, storesId);
                 await ProveLegacyImportedCategoryRepair(server, qcHost.Client, options, user, qcId, tdId);
                 await ProveRequiredActorLookups(qcHost.Client, options, user, purchaseId, tdId);
@@ -904,15 +905,23 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Assert.Equal("TRIAL-WH-C01", stockCheckDetail.DeliveryWarehouseCode);
         Assert.Equal(PurchaseRequisitionStatuses.StockCheckPending, stockCheckDetail.Status);
         Assert.Equal(1, Assert.Single(stockCheckDetail.Lines).LineNumber);
+        var barcodeStockPath = $"/api/v1/stores/stock-check/requisitions/{pr.PrNumber}/scan-candidates";
+        var barcodeStockLines = await Get<GoodsReceiptBarcodeEndpoints.Candidate[]>(prClient, barcodeStockPath);
+        Assert.Contains(barcodeStockLines, row => row.LineKey == "1" && row.ItemCode == stockCheckDetail.Lines[0].ItemCode);
+
         user.SetOrganization("SESS_PROPRIETORSHIP");
         using (var wrongCompany = await prClient.GetAsync($"/api/v1/stores/stock-check/requisitions/{pr.PrNumber}"))
             Assert.Equal(HttpStatusCode.NotFound, wrongCompany.StatusCode);
+        using (var barcodeWrongCompany = await prClient.GetAsync(barcodeStockPath))
+            Assert.Contains(barcodeWrongCompany.StatusCode, new[] { HttpStatusCode.Forbidden, HttpStatusCode.NotFound });
         user.SetOrganization("SESS_PVT_LTD");
         await PostNoResult(prClient, $"/api/v1/purchase/requisitions/{pr.PrNumber}/stock-check",
             new StockCheckRequest("No stock; purchase required", pr.Version, $"{band.Code}-stock",
                 [new(1, "TRIAL-WH-C01", "TRIAL-C01-GEN-01")]), $"{band.Code}-stock");
         var completedStock = await Get<StockCheckPurchaseRequisitionDetail>(prClient,
             $"/api/v1/stores/stock-check/requisitions/{pr.PrNumber}");
+        var completedBarcodeStock = await Get<GoodsReceiptBarcodeEndpoints.Candidate[]>(prClient, barcodeStockPath);
+        Assert.Contains(completedBarcodeStock, row => row.LineKey == "1");
         if (scopeAlignmentWitness)
         {
             Assert.Equal(PurchaseRequisitionStatuses.NotAvailable, completedStock.Status);
@@ -1528,6 +1537,16 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             $"/api/v1/stores/material-issues/outstanding-custody?employeeId={Guid.NewGuid()}");
         Assert.Equal(HttpStatusCode.Forbidden, otherCustody.StatusCode);
 
+        var returnBarcodePath = "/api/v1/stores/barcodes/return-issues/" + issue.Id;
+        var ownBarcodeRows = await Get<GoodsReceiptBarcodeEndpoints.Candidate[]>(client, returnBarcodePath);
+        Assert.Contains(ownBarcodeRows, row => row.ItemId == issue.Lines.Single().ItemId && row.InventorySerialId == null && row.LineKey == issue.Lines.Single().Id.ToString());
+        var requestItemRows = await Get<MaterialBarcodeEndpoints.RequestItem[]>(client,
+            "/api/v1/stores/barcodes/request-items?scan=" + Uri.EscapeDataString(fixture.ItemCode));
+        Assert.Contains(requestItemRows, row => row.ItemId == issue.Lines.Single().ItemId);
+        user.Set(storesId, "SESS-35", Rev869ARoleCodes.StoresExecutive);
+        using (var notCustodian = await client.GetAsync(returnBarcodePath))
+            Assert.Contains(notCustodian.StatusCode, new[] { HttpStatusCode.Forbidden, HttpStatusCode.NotFound });
+        user.Set(engineerId, "SESS-05", "TECHNICAL_SUPPORT_MANAGER", "TECHNICAL_SUPPORT_MANAGER", "SERVICE_ENGINEER");
         await AssertPostStatus(client, $"/api/v1/stores/material-returns/from-issue/{issue.Id}",
             new CreateMaterialReturn(DateTimeOffset.UtcNow,
                 [new MaterialReturnLineInput(issue.Lines.Single().Id, "NOT-THE-ISSUED-ITEM", .60m, 0, .35m)],
@@ -1941,6 +1960,16 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             x => x.InventorySerialId == serial.InventorySerialId);
         Assert.Equal(serial.StoredSerialNumber, availableSerial.StoredSerialNumber);
         Assert.Equal(1m, availableSerial.AvailableQuantity);
+        var issueBarcodePath = "/api/v1/stores/barcodes/issue-requests/" + request.Id;
+        var issueBarcodeRows = await Get<GoodsReceiptBarcodeEndpoints.Candidate[]>(client, issueBarcodePath);
+        Assert.Contains(issueBarcodeRows, row => row.InventorySerialId == serial.InventorySerialId && row.StoredSerialNumber == serial.StoredSerialNumber && row.LineKey == request.Lines.Single().Id.ToString());
+        Assert.Contains(issueBarcodeRows, row => row.ItemId == receivedLine.ItemId && row.InventorySerialId == null && row.RequiresSerial);
+        Assert.DoesNotContain(issueBarcodeRows, row => row.ItemId == receivedLine.ItemId && row.InventorySerialId == null && !row.RequiresSerial);
+        user.SetOrganization("SESS_PROPRIETORSHIP");
+        using (var barcodeWrongCompany = await client.GetAsync(issueBarcodePath))
+            Assert.Contains(barcodeWrongCompany.StatusCode, new[] { HttpStatusCode.Forbidden, HttpStatusCode.NotFound });
+        user.SetOrganization("SESS_PVT_LTD");
+
         var command = new CreateMaterialIssue("mir-serialized-issue", engineerId, DateTimeOffset.UtcNow,
             [new MaterialIssueScan(request.Lines.Single().Id, serial.StoredSerialNumber,
                 serial.InventorySerialId, 1m)]);
@@ -1951,6 +1980,12 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
 
         user.Set(engineerId, "SESS-05", "TECHNICAL_SUPPORT_MANAGER",
             "TECHNICAL_SUPPORT_MANAGER", "SERVICE_ENGINEER");
+        var returnBarcodePath = "/api/v1/stores/barcodes/return-issues/" + issue.Id;
+        var ownBarcodeRows = await Get<GoodsReceiptBarcodeEndpoints.Candidate[]>(client, returnBarcodePath);
+        Assert.Contains(ownBarcodeRows, row => row.InventorySerialId == serial.InventorySerialId && row.LineKey == issue.Lines.Single().Id.ToString());
+        var requestItemRows = await Get<MaterialBarcodeEndpoints.RequestItem[]>(client,
+            "/api/v1/stores/barcodes/request-items?scan=" + Uri.EscapeDataString(serial.StoredSerialNumber));
+        Assert.Contains(requestItemRows, row => row.ItemId == receivedLine.ItemId);
         await AssertPostStatus(client, $"/api/v1/stores/material-returns/from-issue/{issue.Id}",
             new CreateMaterialReturn(DateTimeOffset.UtcNow,
                 [new MaterialReturnLineInput(issue.Lines.Single().Id, "SERIAL-NEVER-ISSUED", 1m, 0, 0)],

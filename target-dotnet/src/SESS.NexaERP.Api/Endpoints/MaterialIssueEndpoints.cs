@@ -108,6 +108,7 @@ public static class MaterialIssueEndpoints
             IMaterialIssueService service, HttpContext h, CancellationToken ct) =>
             Run(() => service.AcceptReturnAsync(id, request, ct), h))
             .RequirePagePermission("stores.material-returns", PagePermissionActions.Approve);
+        endpoints.MapMaterialBarcodeEndpoints();
         return endpoints;
     }
 
