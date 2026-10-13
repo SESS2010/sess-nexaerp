@@ -16,7 +16,7 @@ function harness() {
     react: { useRef: (initial: unknown) => refs[refIndex++] ?? (refs[refIndex - 1] = { current: initial }),
       useState: (initial: unknown) => { const index = stateIndex++; if (!(index in states)) states[index] = initial; return [states[index], (value: unknown) => { states[index] = value }] },
       useEffect: (effect: () => void | (() => void)) => { if (!mounted) effects.push(effect) } },
-    'react/jsx-runtime': { jsx: (type: unknown, props: any) => ({ type, props }), jsxs: (type: unknown, props: any) => ({ type, props }) },
+    'react/jsx-runtime': { jsx: (type: unknown, props: any, key: unknown) => ({ type, props, key }), jsxs: (type: unknown, props: any, key: unknown) => ({ type, props, key }) },
     '../../components/ScannerInput': { ScannerInput: 'scanner' }, './barcodeScan': { ContextScanQueue }, './quantityScanCapture': { QuantityScanCapture },
   }
   const source = readFileSync(new URL('./BarcodeScanField.tsx', import.meta.url), 'utf8')
@@ -111,4 +111,13 @@ test('same document version change discards old lookup and its finish cannot rel
   scanner(newer).props.onScan('0002'); await tick(); assert.equal(pending.at(-1), true)
   oldResolve('old version'); await tick(); assert.equal(pending.at(-1), true); assert.deepEqual(values, [])
   newResolve('new version'); await tick(); h.frames(); assert.deepEqual(values, ['new version']); assert.equal(pending.at(-1), false); assert.equal(h.focus(), 1); h.unmount()
+}))
+// React replaces the stateful scan box when its context key changes, discarding partial text.
+test('scan box identity changes with company, document and version but stays stable for the same context', async () => withDom(async h => {
+  const props = { lookup: async (value: string) => value, onResolved: () => {} }
+  function scanner(node: any): any { if (Array.isArray(node)) return node.map(scanner).find(Boolean); if (!node || typeof node !== 'object') return; if (node.type === 'scanner') return node; return scanner(node.props?.children) }
+  const initial = scanner(h.render({ ...props, target: 'PVT|M1|3' })).key
+  assert.equal(scanner(h.render({ ...props, target: 'PVT|M1|3' })).key, initial)
+  for (const target of ['PROP|M1|3', 'PVT|M2|3', 'PVT|M1|4'])
+    assert.notEqual(scanner(h.render({ ...props, target })).key, initial)
 }))

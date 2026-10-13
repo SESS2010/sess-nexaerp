@@ -86,7 +86,7 @@ export function BarcodeScanField<T>({ target, expectedCompany, companyContext, l
 
   return <div ref={root}>
     <label><input type="checkbox" checked={scanMode} onChange={(event) => setScanMode(event.target.checked)} /> Scan mode (turn off to type quantity)</label>
-    <ScannerInput label={label} scanMode={scanMode} disabled={!activeTarget()}
+    <ScannerInput key={target} label={label} scanMode={scanMode} disabled={!activeTarget()}
       onScan={enqueue}
       warning={warning} hint={busy ? 'Looking up queued scans…' : 'Scan selects only. Review quantities, then use the action button.'} />
   </div>
