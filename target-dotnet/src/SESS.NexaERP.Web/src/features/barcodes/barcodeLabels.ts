@@ -25,3 +25,5 @@ export function barcodeBars(bits: string): { x: number; width: number }[] {
   }
   return bars
 }
+/** Draft lot ordinals may change; only immutable normal receipts have durable stock-lot labels. */
+export function canPrintGrnLotLabels(status: string, documentKind: string): boolean { return status === 'FINALIZED' && documentKind === 'NORMAL' }

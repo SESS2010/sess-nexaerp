@@ -10,7 +10,7 @@ import { ErrorAlert } from '../../components/ErrorAlert'
 import { HistoryPanel } from '../../components/HistoryPanel'
 import { BarcodeLabelDialog } from '../barcodes/BarcodeLabelDialog'
 import { barcodeSessionKey } from '../barcodes/barcodeSession'
-import { grnLotScanCode } from '../barcodes/barcodeLabels'
+import { grnLotScanCode, canPrintGrnLotLabels } from '../barcodes/barcodeLabels'
 import { PAGE_KEYS, useSession } from '../auth/SessionContext'
 
 export function GoodsReceiptDetailPage() {
@@ -136,7 +136,7 @@ export function GoodsReceiptDetailPage() {
           </p>
         </div>
         <div className="action-row">
-          {(loadedLabelContext === labelContext && can(PAGE_KEYS.grn, 'view') && can(PAGE_KEYS.grn, 'print')) && <button type="button" className="btn btn-ghost" disabled={!grn.Lines.some(line => line.Lots.length > 0)} onClick={() => setLabelsOpen(true)}>Print GRN lot labels</button>}
+          {(loadedLabelContext === labelContext && canPrintGrnLotLabels(grn.Status, grn.DocumentKind) && can(PAGE_KEYS.grn, 'view') && can(PAGE_KEYS.grn, 'print')) && <button type="button" className="btn btn-ghost" disabled={!grn.Lines.some(line => line.Lots.length > 0)} onClick={() => setLabelsOpen(true)}>Print GRN lot labels</button>}
           <StatusBadge value={grn.Status} />
           {grn.DocumentKind !== 'NORMAL' && <StatusBadge value={grn.DocumentKind} />}
           {isDraft && (
@@ -160,7 +160,7 @@ export function GoodsReceiptDetailPage() {
         </div>
       </div>
 
-      {labelsOpen && (loadedLabelContext === labelContext && can(PAGE_KEYS.grn, 'view') && can(PAGE_KEYS.grn, 'print')) && <BarcodeLabelDialog canPrintNow={() => !!me && getCompany() === me.OrganizationId && can(PAGE_KEYS.grn, 'view') && can(PAGE_KEYS.grn, 'print')} labels={grn.Lines.flatMap(line => line.Lots.map(lot => ({ kind: 'GRN_LOT' as const,
+      {labelsOpen && (loadedLabelContext === labelContext && canPrintGrnLotLabels(grn.Status, grn.DocumentKind) && can(PAGE_KEYS.grn, 'view') && can(PAGE_KEYS.grn, 'print')) && <BarcodeLabelDialog canPrintNow={() => canPrintGrnLotLabels(grn.Status, grn.DocumentKind) && !!me && getCompany() === me.OrganizationId && can(PAGE_KEYS.grn, 'view') && can(PAGE_KEYS.grn, 'print')} labels={grn.Lines.flatMap(line => line.Lots.map(lot => ({ kind: 'GRN_LOT' as const,
         title: (me?.OrganizationId === 'SESS_PVT_LTD' ? 'PVT ' : 'PROP ') + line.ItemCode + ' · lot ' + lot.LotOrdinal,
         detail: grn.GrnNumber + ' · qty ' + lot.Quantity + (lot.SupplierLotNumber ? ' · ' + lot.SupplierLotNumber : ''),
         value: grnLotScanCode(grn.GrnNumber, line.LineNumber, lot.LotOrdinal, me?.OrganizationId ?? '') })))} onClose={() => setLabelsOpen(false)} />}      {notice && <div className="alert">{notice}</div>}

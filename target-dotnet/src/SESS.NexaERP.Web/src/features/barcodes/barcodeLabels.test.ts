@@ -1,3 +1,4 @@
+import { canPrintGrnLotLabels } from './barcodeLabels.ts'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { barcodeBars, encodeLabel, grnLotScanCode } from './barcodeLabels.ts'
@@ -37,4 +38,9 @@ test('bars retain quiet zones and reconstruct every encoded bit', () => {
 test('control and unsupported unicode are refused before any print', () => {
   assert.throws(() => encodeLabel(label('ABC\nDEF')))
   assert.throws(() => encodeLabel(label('குறியீடு')))
+})
+test('GRN lot labels require finalized normal receipt; mutable drafts and reversal documents are excluded', () => {
+  assert.equal(canPrintGrnLotLabels('FINALIZED', 'NORMAL'), true)
+  for (const status of ['DRAFT', 'REVERSED', '', 'UNKNOWN']) assert.equal(canPrintGrnLotLabels(status, 'NORMAL'), false)
+  assert.equal(canPrintGrnLotLabels('FINALIZED', 'REVERSAL'), false)
 })
