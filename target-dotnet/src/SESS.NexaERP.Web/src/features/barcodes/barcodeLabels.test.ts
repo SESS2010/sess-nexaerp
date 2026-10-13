@@ -1,3 +1,4 @@
+import { rackBinLabel } from './barcodeLabels.ts'
 import { canPrintGrnLotLabels } from './barcodeLabels.ts'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -43,4 +44,10 @@ test('GRN lot labels require finalized normal receipt; mutable drafts and revers
   assert.equal(canPrintGrnLotLabels('FINALIZED', 'NORMAL'), true)
   for (const status of ['DRAFT', 'REVERSED', '', 'UNKNOWN']) assert.equal(canPrintGrnLotLabels(status, 'NORMAL'), false)
   assert.equal(canPrintGrnLotLabels('FINALIZED', 'REVERSAL'), false)
+})
+
+test('rack labels use the immutable bin code accepted by R1 location entry, not a different master barcode', () => {
+  const row = { BinCode: 'PVT-R01-AV', RackName: 'R01', WarehouseCode: 'PVT-STORE', Barcode: '00000123' }
+  assert.equal(rackBinLabel(row).value, 'PVT-R01-AV')
+  assert.equal(row.Barcode, '00000123')
 })

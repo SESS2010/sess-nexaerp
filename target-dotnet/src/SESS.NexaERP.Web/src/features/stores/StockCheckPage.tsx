@@ -23,6 +23,7 @@ import { barcodeSessionKey } from '../barcodes/barcodeSession'
 import { BarcodeScanField } from '../barcodes/BarcodeScanField'
 import { resolveScan, addScanQuantity } from '../barcodes/barcodeScan'
 import { BarcodeLabelDialog } from '../barcodes/BarcodeLabelDialog'
+import { rackBinLabel } from '../barcodes/barcodeLabels'
 import type { BarcodeLabel } from '../barcodes/barcodeLabels'
 import { getRackBarcodeLabels, getStockCheckScanCandidates } from '../../api/barcodes'
 import { PAGE_KEYS, useSession } from '../auth/SessionContext'
@@ -196,14 +197,15 @@ export function StockCheckPage() {
   // Dedicated reads and the action share active stores/company/warehouse authority.
   const loadRackLabels = async () => {
     if (labelBusy || !(can('masters.rack-bins', 'view') && can('masters.rack-bins', 'print'))) return
+    if (!me || getCompany() !== me.OrganizationId) { setError('Wait for the selected company session before reading labels.'); return }
+    const company = me.OrganizationId
     const owner = ++labelOwner.current
     setLabelBusy(true)
     try {
       const rows = await getRackBarcodeLabels()
-      if (labelOwner.current !== owner) return
+      if (labelOwner.current !== owner || getCompany() !== company) return
       if (!rows.length) { setError('No approved rack bins are printable in the selected company and scope.'); return }
-      setRackLabels(rows.map(row => ({ kind: 'RACK_BIN', title: row.BinCode,
-        detail: row.WarehouseCode + ' · ' + row.RackName, value: row.Barcode || row.BinCode, alternativeValue: row.Barcode ? row.BinCode : undefined })))
+      setRackLabels(rows.map(rackBinLabel))
     } catch (error) { if (labelOwner.current === owner) setError(error) }
     finally { if (labelOwner.current === owner) setLabelBusy(false) }
   }

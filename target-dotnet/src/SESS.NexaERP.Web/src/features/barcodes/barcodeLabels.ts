@@ -27,3 +27,8 @@ export function barcodeBars(bits: string): { x: number; width: number }[] {
 }
 /** Draft lot ordinals may change; only immutable normal receipts have durable stock-lot labels. */
 export function canPrintGrnLotLabels(status: string, documentKind: string): boolean { return status === 'FINALIZED' && documentKind === 'NORMAL' }
+
+/** R1 location entry accepts immutable bin codes; a separate master barcode must not replace that code. */
+export function rackBinLabel(row: { BinCode: string; RackName: string; WarehouseCode: string }): BarcodeLabel {
+  return { kind: 'RACK_BIN', title: row.BinCode, detail: row.WarehouseCode + ' · ' + row.RackName, value: row.BinCode }
+}
