@@ -121,3 +121,26 @@ test('scan box identity changes with company, document and version but stays sta
   for (const target of ['PROP|M1|3', 'PVT|M2|3', 'PVT|M1|4'])
     assert.notEqual(scanner(h.render({ ...props, target })).key, initial)
 }))
+
+function checkbox(node: any): any { if (Array.isArray(node)) return node.map(checkbox).find(Boolean); if (!node || typeof node !== 'object') return; if (node.type === 'input' && node.props?.type === 'checkbox') return node; return checkbox(node.props?.children) }
+test('manual quantity mode permits typing and Tab but always refuses implicit Enter submission', async () => withDom(async h => {
+  const reads: string[] = []
+  const props = { target: 'PVT|M1', lookup: async (text: string) => { reads.push(text); return text }, onResolved: () => {} }
+  const tree = h.render(props); h.mount()
+  checkbox(tree).props.onChange({ target: { checked: false } }); h.render(props)
+  const quantity = new QuantityInput()
+  assert.equal(h.key(quantity, '5'), false)
+  assert.equal(h.key(quantity, 'Tab'), false)
+  assert.equal(h.key(quantity, 'Enter'), true)
+  await tick(); assert.deepEqual(reads, []); h.unmount()
+}))
+test('a scanner aimed at a focused action button cannot submit even in manual quantity mode', async () => withDom(async h => {
+  const reads: string[] = []
+  const props = { target: 'PVT|M1', lookup: async (text: string) => { reads.push(text); return text }, onResolved: () => {} }
+  const tree = h.render(props); h.mount()
+  checkbox(tree).props.onChange({ target: { checked: false } }); h.render(props)
+  const button = new SaveButton()
+  for (const key of '000123') assert.equal(h.key(button, key), true)
+  assert.equal(h.key(button, 'Enter'), true)
+  await tick(); assert.deepEqual(reads, ['000123']); h.unmount()
+}))

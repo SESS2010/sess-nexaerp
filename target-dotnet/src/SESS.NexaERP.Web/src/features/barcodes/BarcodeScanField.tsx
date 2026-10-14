@@ -32,6 +32,8 @@ export function BarcodeScanField<T>({ target, expectedCompany, companyContext, l
     queue.current?.enqueue(text)
   }
   const [scanMode, setScanMode] = useState(true)
+  const scanModeRef = useRef(scanMode)
+  scanModeRef.current = scanMode
   const [busy, setBusy] = useState(false)
   const [warning, setWarning] = useState('')
   const queue = useRef<ContextScanQueue<T> | null>(null)
@@ -60,7 +62,7 @@ export function BarcodeScanField<T>({ target, expectedCompany, companyContext, l
   useEffect(() => { queue.current?.setTarget(activeTarget()); setWarning('') }, [target, disabled, expectedCompany, companyContext])
 
   useEffect(() => {
-    if (!scanMode || disabled || !target) return
+    if (disabled || !target) return
     // A wedge must not type the next barcode into the quantity focused by the previous scan.
     // Limit interception to this form's explicitly marked quantity fields; manual mode restores typing.
     const buffer = new QuantityScanCapture()
@@ -72,6 +74,14 @@ export function BarcodeScanField<T>({ target, expectedCompany, companyContext, l
       const button = element instanceof HTMLButtonElement
       if (!quantity && !button) return
       if (event.ctrlKey || event.altKey || event.metaKey) return
+      // Manual quantity entry must never turn a scanner suffix into an implicit form command.
+      if (quantity && !scanModeRef.current) {
+        if (event.key === 'Enter') {
+          event.preventDefault(); event.stopPropagation()
+          setWarning('Review the quantity and use the action button. Turn scan mode on before scanning into quantity.')
+        }
+        return
+      }
       if (!activeTarget()) { event.preventDefault(); event.stopPropagation(); setWarning('Wait for the selected company session before scanning.'); return }
       if (live.current.target !== target) return
       const result = buffer.key(event.key, button)
