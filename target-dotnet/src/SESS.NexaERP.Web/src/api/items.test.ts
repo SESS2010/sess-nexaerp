@@ -72,6 +72,7 @@ test('actual ItemDetailPage cancels without POST, blocks double click and retain
   let resolveWrite: (() => void) | undefined
   const keys: string[] = []
   let fail = true
+  let printPermission = false
   const jsx = (type: unknown, props: any) => ({ type, props })
   const page = load('../features/items/ItemDetailPage.tsx', {
     react: {
@@ -81,6 +82,7 @@ test('actual ItemDetailPage cancels without POST, blocks double click and retain
     },
     'react/jsx-runtime': { jsx, jsxs: jsx },
     'react-router-dom': { Link: 'a', useParams: () => ({ itemCode: detail.ItemCode }) },
+    '../../auth/authSession': { getCompany: () => 'SESS_PVT_LTD' },
     '../../api/items': {
       getItem: async () => detail, getItemVendors: async () => [], fetchItemImageUrl: async () => '',
       runItemAction: async (_code: string, _action: string, _remarks: string, _version: number, key: string) => {
@@ -90,10 +92,11 @@ test('actual ItemDetailPage cancels without POST, blocks double click and retain
       },
     },
     '../auth/SessionContext': { PAGE_KEYS: { items: 'masters.items' }, useSession: () => ({
-      can: () => true, me: { CompanyId: 'PVT', EmployeeId: 'SESS-15', IdentityIssuer: 'staff', IdentitySubject: 'mock' },
+      can: (_page: string, action: string) => action !== 'print' || printPermission, me: { CompanyId: 'PVT', EmployeeId: 'SESS-15', IdentityIssuer: 'staff', IdentitySubject: 'mock' },
     }) },
     '../employees/StatusBadge': { StatusBadge: 'badge' },
     './ItemFormModal': { ItemFormModal: 'modal' },
+    '../barcodes/BarcodeLabelDialog': { BarcodeLabelDialog: 'barcode-label-dialog' },
     './itemActionIntent': { ItemActionIntent },
     '../../components/ErrorAlert': { ErrorAlert: 'error' },
   })
@@ -105,6 +108,16 @@ test('actual ItemDetailPage cancels without POST, blocks double click and retain
     nodes.push(node); walk(node.props?.children)
   }
   walk(tree)
+  assert.equal(nodes.some(node => node.type === 'button' && node.props.children === 'Print item label'), false)
+  printPermission = true; stateIndex = 0
+  const permittedNodes: any[] = []
+  const collect = (node: any) => {
+    if (Array.isArray(node)) { node.forEach(collect); return }
+    if (!node || typeof node !== 'object') return
+    permittedNodes.push(node); collect(node.props?.children)
+  }
+  collect(page.ItemDetailPage())
+  assert.equal(permittedNodes.some(node => node.type === 'button' && node.props.children === 'Print item label'), true)
   const approve = nodes.find(node => node.type === 'button' && node.props.children === 'Approve')
   assert.ok(approve)
   const previousWindow = (globalThis as any).window

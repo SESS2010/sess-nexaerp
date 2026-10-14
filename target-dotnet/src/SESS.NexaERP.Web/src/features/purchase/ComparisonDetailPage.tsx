@@ -16,6 +16,7 @@ import { StatusBadge } from '../employees/StatusBadge'
 import { formatAmount } from './PurchaseRequisitionListPage'
 import { ErrorAlert } from '../../components/ErrorAlert'
 import { HistoryPanel } from '../../components/HistoryPanel'
+import { comparisonActionAllowed } from './purchaseActionVisibility'
 import { CopyId } from '../../components/CopyId'
 
 interface ActionDefinition {
@@ -67,12 +68,14 @@ export function ComparisonDetailPage() {
   }
 
   // POST /comparisons/{number}/recommend → purchase.commercial-comparisons:submit.
-  const canRecommend = can(PAGE_KEYS.comparisons, 'submit')
+  const canRecommendPermission = can(PAGE_KEYS.comparisons, 'submit')
   // Approve / reject / request-revision / resubmit each need their own action
   // grant on purchase.commercial-comparisons.
-  const allowedActions = ACTIONS.filter((definition) => can(PAGE_KEYS.comparisons, definition.permission))
+  const allowedByPermission = ACTIONS.filter((definition) => can(PAGE_KEYS.comparisons, definition.permission))
 
   const [comparison, setComparison] = useState<ComparisonDetail | null>(null)
+  const canRecommend = canRecommendPermission && comparisonActionAllowed(comparison?.Status, 'recommend')
+  const allowedActions = allowedByPermission.filter(definition => comparisonActionAllowed(comparison?.Status, definition.action))
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<unknown>(null)
   const [notice, setNotice] = useState('')
@@ -169,7 +172,7 @@ export function ComparisonDetailPage() {
   )
 
   const recommend = async () => {
-    if (!comparison) return
+    if (!comparison || !comparisonActionAllowed(comparison.Status, 'recommend')) return
     setError(null)
     setNotice('')
     if (!quotationId) {
@@ -216,6 +219,7 @@ export function ComparisonDetailPage() {
           setError(`Comparison ${outcome.fresh.ComparisonNumber} changed since you opened it (now version ${outcome.fresh.Version}, ${outcome.fresh.Status}). Review it and recommend again.`)
           return
         case 'done':
+          setComparison({ ...comparison, Status: outcome.result.Status, Version: outcome.result.Version })
           setNotice(`Recommendation recorded. ${outcome.result.Number} is now ${outcome.result.Status}.`)
           setQuotationId('')
           setRecommendationRemarks('')
@@ -234,7 +238,7 @@ export function ComparisonDetailPage() {
   }
 
   const runAction = async (definition: ActionDefinition) => {
-    if (!comparison) return
+    if (!comparison || !comparisonActionAllowed(comparison.Status, definition.action)) return
     setError(null)
     setNotice('')
     if (!remarks.trim()) {
@@ -252,6 +256,7 @@ export function ComparisonDetailPage() {
       const result = await actOnComparison(comparison.ComparisonNumber, definition.action, { ...body, IdempotencyKey: key })
       if (!isLive()) return
       approvalIntent.current.clear()
+      setComparison({ ...comparison, Status: result.Status, Version: result.Version })
       setRemarks('')
       setNotice(`${definition.label} succeeded. Status is now ${result.Status}.`)
       void load()

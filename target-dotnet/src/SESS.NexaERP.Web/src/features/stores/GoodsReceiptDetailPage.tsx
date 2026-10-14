@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from 'react'
+import { getCompany } from '../../auth/authSession'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { finalizeGoodsReceipt, getGoodsReceipt, reverseGoodsReceipt } from '../../api/goodsReceipts'
 import { newIdempotencyKey } from '../../api/stores'
@@ -7,12 +8,15 @@ import { StatusBadge } from '../employees/StatusBadge'
 import { GoodsReceiptFormModal } from './GoodsReceiptFormModal'
 import { ErrorAlert } from '../../components/ErrorAlert'
 import { HistoryPanel } from '../../components/HistoryPanel'
+import { BarcodeLabelDialog } from '../barcodes/BarcodeLabelDialog'
+import { barcodeSessionKey } from '../barcodes/barcodeSession'
+import { grnLotScanCode, canPrintGrnLotLabels } from '../barcodes/barcodeLabels'
 import { PAGE_KEYS, useSession } from '../auth/SessionContext'
 
 export function GoodsReceiptDetailPage() {
   const { id = '' } = useParams()
   const navigate = useNavigate()
-  const { can } = useSession()
+  const { can, me } = useSession()
   const [grn, setGrn] = useState<GoodsReceiptResult | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<unknown>(null)
@@ -20,6 +24,12 @@ export function GoodsReceiptDetailPage() {
   const [reverseReason, setReverseReason] = useState('')
   const [busy, setBusy] = useState(false)
   const [editing, setEditing] = useState(false)
+  const [labelsOpen, setLabelsOpen] = useState(false)
+  const labelContext = barcodeSessionKey(me) + '|' + id
+  const liveLabelContext = useRef(labelContext)
+  liveLabelContext.current = labelContext
+  const [loadedLabelContext, setLoadedLabelContext] = useState('')
+  useEffect(() => { setLabelsOpen(false) }, [labelContext])
   // Finalize and reverse both post stock; each asks in plain words first.
   const [confirming, setConfirming] = useState<'finalize' | 'reverse' | null>(null)
 
@@ -27,7 +37,9 @@ export function GoodsReceiptDetailPage() {
     setLoading(true)
     setError(null)
     try {
+      const owner = liveLabelContext.current
       setGrn(await getGoodsReceipt(id))
+      setLoadedLabelContext(owner)
     } catch (err) {
       setGrn(null)
       setError(err)
@@ -124,6 +136,7 @@ export function GoodsReceiptDetailPage() {
           </p>
         </div>
         <div className="action-row">
+          {(loadedLabelContext === labelContext && canPrintGrnLotLabels(grn.Status, grn.DocumentKind) && can(PAGE_KEYS.grn, 'view') && can(PAGE_KEYS.grn, 'print')) && <button type="button" className="btn btn-ghost" disabled={!grn.Lines.some(line => line.Lots.length > 0)} onClick={() => setLabelsOpen(true)}>Print GRN lot labels</button>}
           <StatusBadge value={grn.Status} />
           {grn.DocumentKind !== 'NORMAL' && <StatusBadge value={grn.DocumentKind} />}
           {isDraft && (
@@ -147,7 +160,10 @@ export function GoodsReceiptDetailPage() {
         </div>
       </div>
 
-      {notice && <div className="alert">{notice}</div>}
+      {labelsOpen && (loadedLabelContext === labelContext && canPrintGrnLotLabels(grn.Status, grn.DocumentKind) && can(PAGE_KEYS.grn, 'view') && can(PAGE_KEYS.grn, 'print')) && <BarcodeLabelDialog canPrintNow={() => canPrintGrnLotLabels(grn.Status, grn.DocumentKind) && !!me && getCompany() === me.OrganizationId && can(PAGE_KEYS.grn, 'view') && can(PAGE_KEYS.grn, 'print')} labels={grn.Lines.flatMap(line => line.Lots.map(lot => ({ kind: 'GRN_LOT' as const,
+        title: (me?.OrganizationId === 'SESS_PVT_LTD' ? 'PVT ' : 'PROP ') + line.ItemCode + ' · lot ' + lot.LotOrdinal,
+        detail: grn.GrnNumber + ' · qty ' + lot.Quantity + (lot.SupplierLotNumber ? ' · ' + lot.SupplierLotNumber : ''),
+        value: grnLotScanCode(grn.GrnNumber, line.LineNumber, lot.LotOrdinal, me?.OrganizationId ?? '') })))} onClose={() => setLabelsOpen(false)} />}      {notice && <div className="alert">{notice}</div>}
       <ErrorAlert error={error} onReload={() => void load()} fallback="The last action failed." />
 
       {confirming === 'finalize' && (

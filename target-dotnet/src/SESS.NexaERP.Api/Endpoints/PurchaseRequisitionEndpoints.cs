@@ -154,6 +154,7 @@ public static partial class PurchaseRequisitionEndpoints
         group.MapGet("/{prNumber}/approval-history", (string prNumber, NexaErpDbContext db, ICurrentUser user, CancellationToken ct) => ApprovalHistory(db, prNumber, user, ct)).RequirePagePermission(PageApprovals, PagePermissionActions.ViewAuditHistory);
         group.MapGet("/reservations", Reservations).RequirePagePermission(PageReservations, PagePermissionActions.View);
         group.MapGet("/handoffs", Handoffs).RequirePagePermission(PageHandoff, PagePermissionActions.View);
+        endpoints.MapStockCheckBarcodeEndpoints();
         return endpoints;
     }
 

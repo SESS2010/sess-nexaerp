@@ -50,6 +50,30 @@ public sealed class ItemImportV2Tests
 
 
     [Theory]
+    [InlineData("number")]
+    [InlineData("date")]
+    [InlineData("boolean")]
+    public void BarcodeCellsMustBeTextAndNumericDisplayMasksCannotRecoverLostZeros(string kind)
+    {
+        var definition = new ItemImportDefinition();
+        var service = new MasterDataWorkbookService();
+        var row = Row();
+        var bytes = service.Create(definition, [new(row.Values.ToDictionary(pair => pair.Key, pair => (object?)pair.Value))], DateTimeOffset.UtcNow);
+        using var workbook = new XLWorkbook(new MemoryStream(bytes));
+        var column = definition.Columns.Select((value, index) => (value, index)).Single(pair => pair.value.Key == "Barcode").index + 1;
+        var cell = workbook.Worksheet("Data").Cell(2, column);
+        switch (kind) {
+            case "number": cell.Value = 123d; cell.Style.NumberFormat.Format = "000000"; break;
+            case "date": cell.Value = new DateTime(2026, 10, 13); break;
+            default: cell.Value = true; break;
+        }
+        using var output = new MemoryStream(); workbook.SaveAs(output);
+        var error = Assert.Throws<MasterDataValidationException>(() => service.Read(output.ToArray(), definition, 10000));
+        Assert.Contains("Bar Code must be a Text cell", error.Message);
+        Assert.Equal("0000123456789", Assert.Single(service.Read(bytes, definition, 10000).Rows).Values["Barcode"]);
+    }
+
+    [Theory]
     [InlineData(9.2, "9.2", true)]
     [InlineData(4.2, "4.2", true)]
     [InlineData(3.2, "3.2", true)]

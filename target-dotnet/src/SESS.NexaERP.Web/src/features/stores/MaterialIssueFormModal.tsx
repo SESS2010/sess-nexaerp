@@ -1,11 +1,17 @@
-import { useEffect, useMemo, useState } from 'react'
+import { getCompany } from '../../auth/authSession'
+import { useEffect, useRef, useState } from 'react'
 import { issueMaterialFromRequest, lookupMaterialIssueRecipients } from '../../api/materialIssues'
 import type { MaterialIssueRecipientLookup } from '../../api/materialIssues'
 import { newIdempotencyKey } from '../../api/stores'
 import type { MaterialIssueRequestLineView, MaterialIssueRequestView, MaterialIssueView } from '../../types/materialIssue'
-import { mirLineBalanceQuantity, mirLineTdRejected } from '../../types/materialIssue'
+import { mirLineTdRejected } from '../../types/materialIssue'
 import { ErrorAlert } from '../../components/ErrorAlert'
-import { ScannerInput } from '../../components/ScannerInput'
+import { BarcodeScanField } from '../barcodes/BarcodeScanField'
+import { resolveScan } from '../barcodes/barcodeScan'
+import type { ScanCandidate } from '../barcodes/barcodeScan'
+import { appendIssueScan, issueBaseBalance } from '../barcodes/issueScanDraft'
+import { getIssueScanCandidates } from '../../api/barcodes'
+import { barcodeSessionKey } from '../barcodes/barcodeSession'
 import { PAGE_KEYS, useSession } from '../auth/SessionContext'
 
 interface Props {
@@ -18,11 +24,7 @@ interface ScanLine {
   line: MaterialIssueRequestLineView
   scanCode: string
   quantity: string
-}
-
-/** Server rule (EfMaterialIssueService.Issue.cs NormalizeScan): letters and digits only, upper-cased. */
-function normalizeScan(value: string): string {
-  return value.replace(/[^A-Za-z0-9]/g, '').toUpperCase()
+  inventorySerialId: string | null
 }
 
 function nowLocal(): string {
@@ -36,7 +38,7 @@ function nowLocal(): string {
  * Stores roles only). Custody moves from Stores to the named engineer; a
  * return is due one day later. Each scan must match the MIR line's item code
  * (a serialized item needs its exact serial and quantity 1, which this screen
- * cannot resolve yet because no serial lookup is exposed). Quantity is
+ * resolves through the authorized barcode/serial lookup). Quantity is
  * checked on the server against what the MIR line still allows (earlier
  * partial issues count: previouslyIssued + now <= RequestedBaseQuantity) and
  * against AVAILABLE Stores custody; customer-facing excess needs the TD's
@@ -53,11 +55,22 @@ export function MaterialIssueFormModal({ mir, onClose, onIssued }: Props) {
   const [recipientId, setRecipientId] = useState('')
   const [issuedAt, setIssuedAt] = useState(nowLocal())
   const [scans, setScans] = useState<ScanLine[]>([])
-  const [scanMode, setScanMode] = useState(true)
+  const scansRef = useRef<ScanLine[]>([])
+  const updateScans = (change: (current: ScanLine[]) => ScanLine[]) => {
+    const next = change(scansRef.current); scansRef.current = next; setScans(next)
+  }
   const [warning, setWarning] = useState('')
+  const [serialChoices, setSerialChoices] = useState<ScanCandidate[]>([])
+  const [selectedLineId, setSelectedLineId] = useState('')
   const [lookupError, setLookupError] = useState<unknown>(null)
   const [error, setError] = useState<unknown>(null)
   const [saving, setSaving] = useState(false)
+  const [barcodePending, setBarcodePending] = useState(false)
+  const barcodePendingRef = useRef(false)
+  const scanPendingChanged = (pending: boolean) => { barcodePendingRef.current = pending; setBarcodePending(pending) }
+
+  const scanContext = barcodeSessionKey(me) + '|' + mir.Id + '|' + mir.Version
+  useEffect(() => { scansRef.current = []; setScans([]); setWarning(''); setSerialChoices([]); setSelectedLineId('') }, [scanContext])
 
   useEffect(() => {
     const term = employeeSearch.trim()
@@ -67,42 +80,16 @@ export function MaterialIssueFormModal({ mir, onClose, onIssued }: Props) {
     return () => window.clearTimeout(handle)
   }, [employeeSearch])
 
-  const linesByCode = useMemo(() => {
-    const map = new Map<string, MaterialIssueRequestLineView>()
-    for (const line of mir.Lines) map.set(normalizeScan(line.ItemCode), line)
-    return map
-  }, [mir])
-
-  /** What the line still allows in its own UOM: the balance when the API reports it, else the requested quantity. */
-  const lineCap = (line: MaterialIssueRequestLineView): number => mirLineBalanceQuantity(line) ?? line.RequestedQuantity
-  const hasBalance = mir.Lines.some((line) => mirLineBalanceQuantity(line) !== null)
-
-  const onScan = (raw: string) => {
-    const code = normalizeScan(raw)
-    const line = linesByCode.get(code)
-    if (!line) {
-      setWarning(`“${raw}” matches no item on ${mir.RequestNumber}. Scan the item code printed on the bin or pick the line below.`)
-      return
-    }
-    if (lineCap(line) <= 0) {
-      setWarning(`Line ${line.LineNumber} (${line.ItemCode}) is fully issued already — nothing is left on ${mir.RequestNumber} for it.`)
-      return
-    }
-    setWarning('')
-    addLine(line, raw)
+  const lineCap = (line: MaterialIssueRequestLineView): number => issueBaseBalance(line) ?? line.RequestedBaseQuantity
+  const hasBalance = mir.Lines.some((line) => issueBaseBalance(line) !== null)
+  const addLine = (line: MaterialIssueRequestLineView, scanCode: string, inventorySerialId: string | null = null) => {
+    const result = appendIssueScan(scansRef.current.map(row => ({ lineId: row.line.Id, scanCode: row.scanCode,
+      inventorySerialId: row.inventorySerialId, quantity: row.quantity })), { lineId: line.Id, scanCode, inventorySerialId }, lineCap(line))
+    setWarning(result.warning)
+    const next = result.rows.map(row => ({ line: mir.Lines.find(item => item.Id === row.lineId)!,
+      scanCode: row.scanCode, inventorySerialId: row.inventorySerialId, quantity: row.quantity }))
+    updateScans(() => next)
   }
-
-  const addLine = (line: MaterialIssueRequestLineView, scanCode: string) =>
-    setScans((current) => {
-      const existing = current.find((scan) => scan.line.Id === line.Id)
-      if (existing) {
-        return current.map((scan) => scan.line.Id === line.Id
-          ? { ...scan, quantity: String(Math.min(lineCap(line), Number(scan.quantity || 0) + 1)) }
-          : scan)
-      }
-      return [...current, { line, scanCode, quantity: String(Math.min(1, lineCap(line))) }]
-    })
-
   const canIssue = can(PAGE_KEYS.materialIssues, 'issue')
   const recipient = employees.find((employee) => employee.Id === recipientId)
   const customerFacingExcess = mir.Lines.filter((line) => line.ExcessBaseQuantity > 0 && line.ExcessClassification !== 'INTERNAL')
@@ -112,6 +99,8 @@ export function MaterialIssueFormModal({ mir, onClose, onIssued }: Props) {
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault()
+    if (!me || me.OrganizationId !== getCompany()) { setError('Wait for the selected company session before saving.'); return }
+    if (barcodePendingRef.current) { setError('Wait for the queued scans to finish before saving.'); return }
     setError(null)
     if (!recipientId) { setError('Pick the engineer who takes custody.'); return }
     if (recipientId === me?.EmployeeId) { setError('Stores cannot issue to itself; pick the engineer who receives the material.'); return }
@@ -119,12 +108,12 @@ export function MaterialIssueFormModal({ mir, onClose, onIssued }: Props) {
     for (const scan of scans) {
       const qty = Number(scan.quantity)
       if (!(qty > 0)) { setError(`${scan.line.ItemCode}: quantity must be greater than zero.`); return }
-      const balance = mirLineBalanceQuantity(scan.line)
+      const balance = issueBaseBalance(scan.line)
       if (balance !== null && qty > balance) {
-        setError(`${scan.line.ItemCode}: ${qty} exceeds the balance ${balance} ${scan.line.UomCode} still open on the MIR line (${scan.line.RequestedQuantity} requested, the rest issued earlier).`)
+        setError(`${scan.line.ItemCode}: ${qty} exceeds the balance ${balance} base units still open on the MIR line (${scan.line.RequestedQuantity} requested, the rest issued earlier).`)
         return
       }
-      if (qty > scan.line.RequestedQuantity) { setError(`${scan.line.ItemCode}: ${qty} exceeds the MIR line quantity ${scan.line.RequestedQuantity}.`); return }
+      if (qty > scan.line.RequestedBaseQuantity) { setError(`${scan.line.ItemCode}: ${qty} exceeds the MIR line quantity ${scan.line.RequestedBaseQuantity} base units.`); return }
     }
     setSaving(true)
     try {
@@ -135,7 +124,7 @@ export function MaterialIssueFormModal({ mir, onClose, onIssued }: Props) {
         Scans: scans.map((scan) => ({
           MaterialIssueRequestLineId: scan.line.Id,
           ScanCode: scan.scanCode,
-          InventorySerialId: null,
+          InventorySerialId: scan.inventorySerialId,
           Quantity: Number(scan.quantity),
         })),
       }))
@@ -200,16 +189,22 @@ export function MaterialIssueFormModal({ mir, onClose, onIssued }: Props) {
           </div>
 
           <div className="field-wide">
-            <ScannerInput
-              label="Scan item"
-              placeholder="Item code barcode…"
-              scanMode={scanMode}
-              onScan={onScan}
-              warning={warning}
-              hint={`${scans.length} of ${mir.Lines.length} MIR lines scanned. Each scan adds one; adjust the quantity below.`}
-            />
-            <label className="field-hint"><input type="checkbox" checked={!scanMode} onChange={(event) => setScanMode(!event.target.checked)} /> Keyboard mode (release scanner focus)</label>
-          </div>
+            <BarcodeScanField expectedCompany={me?.OrganizationId} companyContext={getCompany} onPendingChange={scanPendingChanged} target={barcodeSessionKey(me) + '|' + mir.Id + '|' + mir.Version} disabled={saving || !canIssue || blocked}
+              lookup={async (text, context) => {
+                const candidates = await getIssueScanCandidates(mir.Id, context)
+                return { result: resolveScan(candidates, text, me?.OrganizationId), candidates }
+              }}
+              focusQuantity={({ result }) => result.kind === 'match' ? '[data-mir-quantity="' + result.candidate.lineKey + '"]' : ''}
+              onResolved={({ result, candidates }) => {
+                setSerialChoices(candidates)
+                if (result.kind !== 'match') { setWarning(result.message); return }
+                const line = mir.Lines.find(row => row.Id === result.candidate.lineKey)
+                if (!line) { setWarning('MIR line changed. Reload before scanning.'); return }
+                setSelectedLineId(line.Id)
+                if (result.candidate.requiresSerial) { setWarning('Serialized item selected. Scan or select its exact available physical serial; no quantity was added.'); return }
+                addLine(line, result.candidate.storedSerialNumber ?? line.ItemCode, result.candidate.inventorySerialId)
+              }} />
+            {warning && <span className="scan-warning" role="alert">{warning}</span>}          </div>
 
           <ErrorAlert error={lookupError} className="field-wide" fallback="Employee lookup failed." />
 
@@ -221,7 +216,7 @@ export function MaterialIssueFormModal({ mir, onClose, onIssued }: Props) {
                   <th>Item</th>
                   <th className="text-right">Requested</th>
                   <th className="text-right" title={hasBalance ? 'Still open on the line after earlier issues' : 'This API does not report earlier issues; the server enforces the balance.'}>Balance</th>
-                  <th className="text-right">Issue qty</th>
+                  <th className="text-right">Issue qty (base units)</th>
                   <th>Scan</th>
                   <th />
                 </tr>
@@ -229,7 +224,7 @@ export function MaterialIssueFormModal({ mir, onClose, onIssued }: Props) {
               <tbody>
                 {mir.Lines.map((line) => {
                   const scan = scans.find((candidate) => candidate.line.Id === line.Id)
-                  const balance = mirLineBalanceQuantity(line)
+                  const balance = issueBaseBalance(line)
                   const exhausted = balance !== null && balance <= 0
                   return (
                     <tr key={line.Id}>
@@ -242,18 +237,28 @@ export function MaterialIssueFormModal({ mir, onClose, onIssued }: Props) {
                       <td className="text-right mono">
                         {balance === null
                           ? <span title="Not reported by this API; the server enforces the balance.">—</span>
-                          : exhausted ? <span title="Fully issued">0 {line.UomCode}</span> : `${balance} ${line.UomCode}`}
+                          : exhausted ? <span title="Fully issued">0 base units</span> : `${balance} base units`}
                       </td>
                       <td className="text-right">
                         {scan ? (
-                          <input className="input text-right mono" inputMode="decimal" value={scan.quantity} onChange={(event) => setScans((current) => current.map((row) => row.line.Id === line.Id ? { ...row, quantity: event.target.value } : row))} />
-                        ) : '—'}
+                          <input className="input text-right mono" inputMode="decimal" data-barcode-quantity data-mir-quantity={line.Id} readOnly={scan.inventorySerialId !== null} value={scan.inventorySerialId ? String(scans.filter(row => row.line.Id === line.Id).length) : scan.quantity} onChange={(event) => updateScans((current) => current.map((row) => row.line.Id === line.Id ? { ...row, quantity: event.target.value } : row))} />
+                        ) : selectedLineId === line.Id ? <input className="input text-right mono" readOnly data-barcode-quantity data-mir-quantity={line.Id} value="" placeholder="Scan serial" /> : '—'}
                       </td>
-                      <td className="mono">{scan ? scan.scanCode : <button type="button" className="btn btn-ghost" disabled={exhausted} title={exhausted ? 'Fully issued already; nothing is left on this line.' : undefined} onClick={() => addLine(line, line.ItemCode)}>Add without scan</button>}</td>
-                      <td>{scan && <button type="button" className="btn btn-ghost" onClick={() => setScans((current) => current.filter((row) => row.line.Id !== line.Id))}>✕</button>}</td>
+                      <td className="mono">{scan ? scans.filter(row => row.line.Id === line.Id).map(row => row.scanCode).join(', ') : <button type="button" className="btn btn-ghost" disabled={exhausted} title={exhausted ? 'Fully issued already; nothing is left on this line.' : undefined} onClick={() => { setSelectedLineId(line.Id); if (serialChoices.some(row => row.lineKey === line.Id && row.requiresSerial)) setWarning('Scan or select an available physical serial for this item.'); else addLine(line, line.ItemCode) }}>Add without scan</button>}</td>
+                      <td>{scan && <button type="button" className="btn btn-ghost" onClick={() => updateScans((current) => current.filter((row) => row.line.Id !== line.Id))}>✕</button>}</td>
                     </tr>
                   )
                 })}
+                {selectedLineId && serialChoices.some(row => row.lineKey === selectedLineId && row.inventorySerialId) && <tr>
+                  <td colSpan={7}><label>Available physical serial <select className="input" value="" disabled={saving || barcodePending}
+                    onChange={(event) => {
+                      const candidate = serialChoices.find(row => row.lineKey === selectedLineId && row.inventorySerialId === event.target.value)
+                      const line = mir.Lines.find(row => row.Id === selectedLineId)
+                      if (candidate && line && candidate.inventorySerialId && candidate.storedSerialNumber) addLine(line, candidate.storedSerialNumber, candidate.inventorySerialId)
+                    }}><option value="">Select the serial on the physical item…</option>
+                    {serialChoices.filter(row => row.lineKey === selectedLineId && row.inventorySerialId).map(row => <option key={row.inventorySerialId} value={row.inventorySerialId!}>{row.storedSerialNumber}</option>)}
+                  </select></label></td>
+                </tr>}
               </tbody>
             </table>
           </div>
@@ -265,7 +270,7 @@ export function MaterialIssueFormModal({ mir, onClose, onIssued }: Props) {
             <button
               type="submit"
               className="btn btn-primary"
-              disabled={saving || !canIssue || blocked}
+              disabled={saving || barcodePending || !canIssue || blocked}
               title={!canIssue ? 'Only Stores roles may issue material.'
                 : rejectedExcess.length > 0 ? `The TD rejected the excess on line ${rejectedExcess.map((line) => line.LineNumber).join(', ')}; edit the MIR quantity or raise a new MIR.`
                 : blockedExcess.length > 0 ? 'Customer-facing excess awaits the TD decision.'

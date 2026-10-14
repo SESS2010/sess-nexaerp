@@ -121,6 +121,9 @@ internal sealed class MasterDataWorkbookService
                 var cell = data.Cell(rowNumber, columnNumber);
                 if (cell.HasFormula)
                     throw new MasterDataValidationException($"Formula cells are not allowed. Remove the formula at {cell.Address}.");
+                if (definition.MasterKey == "items" && definition.Columns[columnNumber - 1].Key == "Barcode" &&
+                    !cell.IsEmpty() && cell.DataType != XLDataType.Text)
+                    throw new MasterDataValidationException($"Row {rowNumber}: Bar Code must be a Text cell to preserve leading zeros. Re-export it as text; do not guess missing zeros.");
                 var value = ReadValue(cell, definition.Columns[columnNumber - 1].Format == "DD-MM-YYYY" ? "dd-MM-yyyy" : "yyyy-MM-dd");
                 if (!string.IsNullOrWhiteSpace(value)) hasValue = true;
                 values[definition.Columns[columnNumber - 1].Key] = value;
