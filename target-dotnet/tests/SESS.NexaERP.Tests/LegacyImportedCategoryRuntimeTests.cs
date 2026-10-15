@@ -13,7 +13,7 @@ namespace SESS.NexaERP.Tests;
 public sealed partial class AdvanceMigrationSqlSyntaxTests
 {
     private static async Task ProveLegacyImportedCategoryRepair(DisposablePostgreSql server, HttpClient client,
-        DbContextOptions<NexaErpDbContext> options, TaxWorkflowUser user, Guid qcId, Guid tdId)
+        DbContextOptions<NexaErpDbContext> options, TaxWorkflowUser user, Guid qcId, Guid tdId, string runtimeConnection)
     {
         var timer = System.Diagnostics.Stopwatch.StartNew();
         var directory = Path.Combine(FindRepositoryRoot(), "database", "postgresql");
@@ -64,18 +64,30 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             .Select(x => new { x.Id, x.ItemCategoryIdSnapshot, x.ItemCategoryCodeSnapshot }).ToArrayAsync());
         // Every imported master must be editable through real seeded authority, not just parse as SQL.
         var importedCodes = await db.Items.Where(x => x.CreatedBy == "EXCEL_IMPORT").OrderBy(x => x.ItemCode).Select(x => x.ItemCode).ToListAsync();
+        // The unpooled 16-worker import edit burst exhausted PostgreSQL's backend slots
+        // (53300) in the full witness. Bound reusable connections for this fixture only;
+        // preserve all 16 workers, every imported item, runtime identity and real scope checks.
+        var editingConnection = new Npgsql.NpgsqlConnectionStringBuilder(runtimeConnection)
+        {
+            Pooling = true, MaxPoolSize = 16, MinPoolSize = 0,
+            ApplicationName = "legacy-import-edit-witness"
+        };
+        await using var editingHost = await PurchaseFlowHost.StartAsync(editingConnection.ConnectionString, user,
+            useRealPagePermissions: true, useRealOperationalScopes: true);
+        var editingClient = editingHost.Client;
         // Each request edits a different item. The selected TD identity/assignment is
         // stable for this entire block; every request gets its own scoped DbContext.
         await Parallel.ForEachAsync(importedCodes, new ParallelOptions { MaxDegreeOfParallelism = 16 }, async (code, _) =>
         {
             var itemPath = "/api/v1/inventory/item-by-code?code=" + Uri.EscapeDataString(code);
-            var detail = await Get<ItemDetail>(client, itemPath);
+            var detail = await Get<ItemDetail>(editingClient, itemPath);
             var request = JsonSerializer.Deserialize<UpsertItemRequest>(JsonSerializer.Serialize(detail))!
                 with { DetailedDescription = detail.DetailedDescription + " [edit witness]" };
-            using var edited = await client.PutAsJsonAsync(itemPath, request);
+            using var edited = await editingClient.PutAsJsonAsync(itemPath, request);
             Assert.True(edited.StatusCode == HttpStatusCode.OK,
                 $"Imported item {code} is not editable: {edited.StatusCode} {await edited.Content.ReadAsStringAsync()}");
         });
+        await ProveImportedItemBarcodeEditing(editingClient, options, importedCodes);
         timer.Stop();
         var evidence = Path.Combine(FindRepositoryRoot(), "local-evidence", "category-import");
         Directory.CreateDirectory(evidence);
@@ -84,4 +96,37 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 RepairAudited = true, RetiredImportAliases = 3, RetiredAliasesAbsentFromActiveChoices = true, ReplayIdempotent = true, ReceiptSnapshotsUnchanged = true,
                 ElapsedSeconds = timer.Elapsed.TotalSeconds }, new JsonSerializerOptions { WriteIndented = true }));
     }
-}
+    private static async Task ProveImportedItemBarcodeEditing(HttpClient client,
+        DbContextOptions<NexaErpDbContext> options, IReadOnlyList<string> codes)
+    {
+        Assert.True(codes.Count >= 2);
+        var path = "/api/v1/inventory/item-by-code?code=" + Uri.EscapeDataString("FS-100");
+        foreach (var barcode in new string?[] { null, "RC25-LEGACY-EDIT", "0000123000456" })
+        {
+            var before = await Get<ItemDetail>(client, path);
+            var edit = JsonSerializer.Deserialize<UpsertItemRequest>(JsonSerializer.Serialize(before))!
+                with { Barcode = barcode };
+            using var response = await client.PutAsJsonAsync(path, edit);
+            Assert.True(response.StatusCode == HttpStatusCode.OK,
+                $"Imported barcode edit refused: {response.StatusCode} {await response.Content.ReadAsStringAsync()}");
+            var after = await Get<ItemDetail>(client, path);
+            Assert.Equal(barcode, after.Barcode);
+            Assert.Equal(before.Version + 1, after.Version);
+            Assert.Equal(before.CategoryId, after.CategoryId);
+            Assert.Equal(before.BaseUomId, after.BaseUomId);
+        }
+        var otherCode = codes.First(code => code != "FS-100");
+        var otherPath = "/api/v1/inventory/item-by-code?code=" + Uri.EscapeDataString(otherCode);
+        var other = await Get<ItemDetail>(client, otherPath);
+        await using var db = new NexaErpDbContext(options);
+        var audits = await db.AuditLogs.CountAsync(x => x.EntityId == other.Id.ToString());
+        var duplicate = JsonSerializer.Deserialize<UpsertItemRequest>(JsonSerializer.Serialize(other))!
+            with { Barcode = "0000123000456" };
+        using var refused = await client.PutAsJsonAsync(otherPath, duplicate);
+        Assert.Equal(HttpStatusCode.Conflict, refused.StatusCode);
+        var unchanged = await Get<ItemDetail>(client, otherPath);
+        Assert.Equal(other.Version, unchanged.Version);
+        Assert.Equal(other.Barcode, unchanged.Barcode);
+        Assert.Equal(other.ApprovalStatus, unchanged.ApprovalStatus);
+        Assert.Equal(audits, await db.AuditLogs.CountAsync(x => x.EntityId == other.Id.ToString()));
+    }}

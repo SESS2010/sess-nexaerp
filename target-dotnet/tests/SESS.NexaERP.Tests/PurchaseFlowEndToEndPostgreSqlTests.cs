@@ -627,7 +627,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 await ProveAccountsGrnReads(qcHost.Client, options, user, managerId, grns[0]);
                 await ProveReceiptBarcodeScope(qcHost.Client, options, user, storesId, secondReceiptOperatorId, managerId, storesManagerId, grns[0]);
                 await ProveStoresReturnInputs(qcHost.Client, options, user, storesId);
-                await ProveLegacyImportedCategoryRepair(server, qcHost.Client, options, user, qcId, tdId);
+                await ProveLegacyImportedCategoryRepair(server, qcHost.Client, options, user, qcId, tdId, runtimeConnection);
                 await ProveRequiredActorLookups(qcHost.Client, options, user, purchaseId, tdId);
             }
         }
