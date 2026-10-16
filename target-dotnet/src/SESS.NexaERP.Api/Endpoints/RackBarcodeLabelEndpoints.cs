@@ -10,9 +10,9 @@ public static class RackBarcodeLabelEndpoints
     public sealed record RackLabel(string BinCode, string RackName, string WarehouseCode, string? Barcode);
     public static IEndpointRouteBuilder MapRackBarcodeLabelEndpoints(this IEndpointRouteBuilder endpoints)
     {
-        endpoints.MapGet("/api/v1/stores/barcodes/rack-labels", async (NexaErpDbContext db, ICurrentUser user, CancellationToken ct) =>
+        endpoints.MapGet("/api/v1/stores/barcodes/rack-labels", async (NexaErpDbContext db, ICurrentUser user, HttpContext context, CancellationToken ct) =>
         {
-            var scopes = await BarcodeScope.Active(db, user, ct);
+            var scopes = BarcodeScope.Active(db, user, context);
             var rows = await db.RackBins.AsNoTracking().Where(r => r.IsActive && r.ApprovalStatus == "Approved" && r.Warehouse != null && r.Warehouse.IsActive &&
                 db.Companies.Any(c => c.Id == r.CompanyId && c.Code == user.OrganizationId && c.IsActive) &&
                 scopes.Any(s => s.CompanyId == r.CompanyId && !s.OwnRecordsOnly &&
@@ -20,7 +20,7 @@ public static class RackBarcodeLabelEndpoints
                 .OrderBy(r => r.Warehouse!.WarehouseCode).ThenBy(r => r.BinCode)
                 .Select(r => new RackLabel(r.BinCode, r.RackName, r.Warehouse!.WarehouseCode, r.Barcode)).ToListAsync(ct);
             return Results.Ok(rows);
-        }).RequireAuthorization().AddEndpointFilter(EmployeeScopeEndpointFilter.RequireResolvedEmployeeAndScope)
+        }).WithMetadata(new BarcodeBusinessDate()).RequireAuthorization().AddEndpointFilter(EmployeeScopeEndpointFilter.RequireResolvedEmployeeAndScope)
             .RequirePagePermission("masters.rack-bins", PagePermissionActions.View)
             .RequirePagePermission("masters.rack-bins", PagePermissionActions.Print);
         return endpoints;

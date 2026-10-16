@@ -3,6 +3,7 @@ using SESS.NexaERP.Application.Authorization;
 using SESS.NexaERP.Application.Common;
 using SESS.NexaERP.Infrastructure.Persistence;
 using SESS.NexaERP.Api.Security;
+using SESS.NexaERP.Infrastructure.Authorization;
 
 namespace SESS.NexaERP.Api.Endpoints;
 
@@ -15,11 +16,11 @@ public static class GoodsReceiptBarcodeEndpoints
     public static IEndpointRouteBuilder MapGoodsReceiptBarcodeEndpoints(this IEndpointRouteBuilder endpoints)
     {
         endpoints.MapGet("/api/v1/stores/goods-receipts/gates/{gateId:guid}/scan-candidates",
-            async (Guid gateId, NexaErpDbContext db, ICurrentUser user, CancellationToken ct) =>
+            async (Guid gateId, NexaErpDbContext db, ICurrentUser user, HttpContext context, CancellationToken ct) =>
             {
                 if (!BarcodeScope.RequireStores(user, "view"))
                     return Results.Forbid();
-                var scopes = await BarcodeScope.Active(db, user, ct);
+                var scopes = PurchaseActorScope.ActiveScopes(db, user, BarcodeBusinessDate.ForRequest(context));
                 var gate = await db.GateEntries.AsNoTracking()
                     .Where(g => g.Id == gateId && db.Companies.Any(c => c.Id == g.CompanyId && c.Code == user.OrganizationId && c.IsActive && c.Status == "ACTIVE") &&
                         g.PurchaseOrder != null && scopes.Any(s => s.CompanyId == g.CompanyId &&
@@ -41,9 +42,9 @@ public static class GoodsReceiptBarcodeEndpoints
                 foreach (var line in lines)
                     foreach (var serial in serials.Where(serial => serial.GateEntryLineId.ToString() == line.LineKey))
                         result.Add(line with { InventorySerialId = serial.InventorySerialId, StoredSerialNumber = serial.StoredSerialNumber });
-                result.AddRange(await BarcodeStockLotCandidates.Read(db, user, gate.CompanyId, lines, gate.DeliveryWarehouseId, ct));
+                result.AddRange(await BarcodeStockLotCandidates.Read(db, user, gate.CompanyId, lines, gate.DeliveryWarehouseId, ct, BarcodeBusinessDate.ForRequest(context)));
                 return Results.Ok(result);
-            }).RequireAuthorization()
+            }).WithMetadata(new BarcodeBusinessDate()).RequireAuthorization()
             .AddEndpointFilter(EmployeeScopeEndpointFilter.RequireResolvedEmployeeAndScope)
             .RequirePagePermission("inventory.grn", PagePermissionActions.View);
         return endpoints;

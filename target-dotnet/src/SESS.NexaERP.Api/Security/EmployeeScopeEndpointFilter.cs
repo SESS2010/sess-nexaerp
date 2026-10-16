@@ -23,7 +23,10 @@ public static class EmployeeScopeEndpointFilter
         }
 
         var authorizer = services.GetRequiredService<IRecordScopeAuthorizer>();
-        var decision = await authorizer.AuthorizeAnyAsync(user.EmployeeId.Value, user.RoleCode, user.OrganizationId, DateOnly.FromDateTime(DateTime.UtcNow), context.HttpContext.RequestAborted);
+        // Only explicitly marked barcode metadata reads opt in; legacy endpoint date policy is unchanged.
+        var scopeDate = context.HttpContext.GetEndpoint()?.Metadata.GetMetadata<BarcodeBusinessDate>() is not null
+            ? BarcodeBusinessDate.ForRequest(context.HttpContext) : DateOnly.FromDateTime(DateTime.UtcNow);
+        var decision = await authorizer.AuthorizeAnyAsync(user.EmployeeId.Value, user.RoleCode, user.OrganizationId, scopeDate, context.HttpContext.RequestAborted);
         if (!decision.Allowed)
         {
             await audit.WriteAsync("Security", "RecordScopeDenied", "Endpoint", context.HttpContext.Request.Path, null,

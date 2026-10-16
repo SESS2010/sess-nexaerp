@@ -1,4 +1,4 @@
-using SESS.NexaERP.Api.Security;
+using SESS.NexaERP.Infrastructure.Authorization;
 using Microsoft.EntityFrameworkCore;
 using SESS.NexaERP.Application.Common;
 using SESS.NexaERP.Application.Stores;
@@ -10,10 +10,10 @@ internal static class BarcodeStockLotCandidates
 {
     // Lot labels identify the item. Existing issue commands retain FIFO allocation authority.
     internal static async Task<List<Candidate>> Read(NexaErpDbContext db, ICurrentUser user, Guid companyId,
-        IReadOnlyList<Candidate> lines, Guid? deliveryWarehouseId, CancellationToken ct)
+        IReadOnlyList<Candidate> lines, Guid? deliveryWarehouseId, CancellationToken ct, DateOnly businessDate)
     {
         var items = lines.Where(l => !l.InventorySerialId.HasValue && !l.RequiresSerial).Select(l => l.ItemId).Distinct().ToArray();
-        var scopes = await BarcodeScope.Active(db, user, ct);
+        var scopes = PurchaseActorScope.ActiveScopes(db, user, businessDate);
         var available = db.StockMovements.AsNoTracking().Where(m => m.CompanyId == companyId && items.Contains(m.ItemId) &&
             m.InventoryLotId.HasValue && m.ConditionCode == "AVAILABLE" && (!deliveryWarehouseId.HasValue || m.WarehouseId == deliveryWarehouseId) &&
             m.CustodyAssignment != null && m.CustodyAssignment.CustodyAccount != null && m.CustodyAssignment.CustodyAccount.CustodyType == "WAREHOUSE" &&
