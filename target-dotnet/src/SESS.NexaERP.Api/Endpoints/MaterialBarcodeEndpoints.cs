@@ -13,14 +13,14 @@ public static class MaterialBarcodeEndpoints
         string? Barcode, Guid? InventorySerialId, string? StoredSerialNumber);
     public static IEndpointRouteBuilder MapMaterialBarcodeEndpoints(this IEndpointRouteBuilder endpoints)
     {
-        var group = endpoints.MapGroup("/api/v1/stores/barcodes").RequireAuthorization()
+        var group = endpoints.MapGroup("/api/v1/stores/barcodes").WithMetadata(new BarcodeBusinessDate()).RequireAuthorization()
             .AddEndpointFilter(EmployeeScopeEndpointFilter.RequireResolvedEmployeeAndScope);
-        group.MapGet("/request-items", async (string scan, NexaErpDbContext db, ICurrentUser user, CancellationToken ct) =>
+        group.MapGet("/request-items", async (string scan, NexaErpDbContext db, ICurrentUser user, HttpContext context, CancellationToken ct) =>
         {
             if (string.IsNullOrWhiteSpace(scan) || scan.Length > 200 || scan.Any(char.IsControl))
                 return Results.BadRequest(new { message = "Scan a non-empty text barcode, item code or serial (maximum 200 characters)." });
             var token = scan.Trim().ToUpperInvariant();
-            var scopes = await BarcodeScope.Active(db, user, ct);
+            var scopes = BarcodeScope.Active(db, user, context);
             var companyId = await db.Companies.Where(c => c.Code == user.OrganizationId && c.IsActive &&
                 scopes.Any(s => s.CompanyId == c.Id)).Select(c => (Guid?)c.Id).SingleOrDefaultAsync(ct);
             if (!companyId.HasValue) return Results.Forbid();
@@ -39,10 +39,10 @@ public static class MaterialBarcodeEndpoints
             return Results.Ok(rows);
         }).RequirePagePermission("stores.material-issue-requests", PagePermissionActions.Create);
         group.MapGet("/issue-requests/{requestId:guid}", async (Guid requestId, NexaErpDbContext db,
-            ICurrentUser user, IMaterialIssueService service, CancellationToken ct) =>
+            ICurrentUser user, IMaterialIssueService service, HttpContext context, CancellationToken ct) =>
         {
             if (!BarcodeScope.RequireStores(user, "issue")) return Results.Forbid();
-            var scopes = await BarcodeScope.Active(db, user, ct);
+            var scopes = BarcodeScope.Active(db, user, context);
             var request = await db.MaterialIssueRequests.AsNoTracking().Where(r => r.Id == requestId &&
                 db.Companies.Any(c => c.Id == r.CompanyId && c.Code == user.OrganizationId && c.IsActive) &&
                 scopes.Any(s => s.CompanyId == r.CompanyId && (!s.OwnRecordsOnly || r.RequestedByEmployeeId == user.EmployeeId)) &&
@@ -68,13 +68,13 @@ public static class MaterialBarcodeEndpoints
                 foreach (var serial in serials)
                     result.Add(new(line.Id.ToString(), line.ItemId, line.ItemCode, line.Barcode, serial.InventorySerialId, serial.StoredSerialNumber));
             }
-            result.AddRange(await BarcodeStockLotCandidates.Read(db, user, request.CompanyId, result.ToArray(), null, ct));
+            result.AddRange(await BarcodeStockLotCandidates.Read(db, user, request.CompanyId, result.ToArray(), null, ct, BarcodeBusinessDate.ForRequest(context)));
             return Results.Ok(result);
         }).RequirePagePermission("stores.material-issues", PagePermissionActions.Issue);
 
-        group.MapGet("/return-issues/{issueId:guid}", async (Guid issueId, NexaErpDbContext db, ICurrentUser user, CancellationToken ct) =>
+        group.MapGet("/return-issues/{issueId:guid}", async (Guid issueId, NexaErpDbContext db, ICurrentUser user, HttpContext context, CancellationToken ct) =>
         {
-            var scopes = await BarcodeScope.Active(db, user, ct);
+            var scopes = BarcodeScope.Active(db, user, context);
             var issue = await db.MaterialIssues.AsNoTracking().Where(i => i.Id == issueId && i.IssuedToEmployeeId == user.EmployeeId &&
                 db.Companies.Any(c => c.Id == i.CompanyId && c.Code == user.OrganizationId && c.IsActive) &&
                 scopes.Any(s => s.CompanyId == i.CompanyId)).Select(i => new { i.Id, i.CompanyId }).SingleOrDefaultAsync(ct);

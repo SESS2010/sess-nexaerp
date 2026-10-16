@@ -9,7 +9,7 @@ namespace SESS.NexaERP.Tests;
 public sealed partial class AdvanceMigrationSqlSyntaxTests
 {
     private static async Task ProveReceiptBarcodeScope(HttpClient client, DbContextOptions<NexaErpDbContext> options,
-        TaxWorkflowUser user, Guid storesId, Guid assistantId, Guid accountsId, Guid storesManagerId, GoodsReceiptResult receipt)
+        TaxWorkflowUser user, Guid storesId, Guid assistantId, Guid accountsId, Guid storesManagerId, GoodsReceiptResult receipt, string runtimeConnection)
     {
         var path = "/api/v1/stores/goods-receipts/gates/" + receipt.GateEntryId + "/scan-candidates";
         await using (var db = new NexaErpDbContext(options))
@@ -35,6 +35,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         }
         user.Set(storesId, "SESS-35", "STORES_EXECUTIVE");
         await AssertResolvedSeedRole(options, user, "STORES_EXECUTIVE");
+        List<SESS.NexaERP.Domain.Authorization.EmployeeOperationalScope> originalScopeVersions;
         await using (var db = new NexaErpDbContext(options))
         {
             var companyId = await db.GateEntries.Where(g => g.Id == receipt.GateEntryId).Select(g => g.CompanyId).SingleAsync();
@@ -57,7 +58,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             var other = new SESS.NexaERP.Domain.Inventory.Warehouse { CompanyId = companyId,
                 WarehouseCode = "BARCODE-OTHER", Name = "Other disposable warehouse", WarehouseType = "STORES", Status = "Active", ApprovalStatus = "Approved" };
             db.Warehouses.Add(other); await db.SaveChangesAsync();
-            var scopes = await db.EmployeeOperationalScopes.Where(scope => scope.CompanyId == companyId && scope.EmployeeId == storesId && scope.IsActive).ToListAsync();
+            originalScopeVersions = await db.EmployeeOperationalScopes.AsNoTracking().Where(scope => scope.CompanyId == companyId && scope.EmployeeId == storesId && scope.IsActive && scope.EffectiveFrom <= today && (scope.EffectiveTo == null || scope.EffectiveTo >= today)).ToListAsync();
+            var scopes = await db.EmployeeOperationalScopes.Where(scope => scope.CompanyId == companyId && scope.EmployeeId == storesId && scope.IsActive && scope.EffectiveTo == null && scope.EffectiveFrom <= today).ToListAsync();
             Assert.NotEmpty(scopes);
             foreach (var scope in scopes) { scope.IsActive = false; scope.EffectiveTo = today; scope.Version++; scope.UpdatedAt = DateTimeOffset.UtcNow; scope.UpdatedBy = "BARCODE_SCOPE_WITNESS"; }
             await db.SaveChangesAsync();
@@ -82,6 +84,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             using var resumed = await client.GetAsync(path);
             Assert.Equal(HttpStatusCode.OK, resumed.StatusCode);
         }
+        await ProveBarcodeScopeBusinessDateBoundaries(options, runtimeConnection, user, storesId, path, originalScopeVersions);
         using (var printDenied = await client.GetAsync("/api/v1/stores/barcodes/rack-labels"))
             Assert.Equal(HttpStatusCode.Forbidden, printDenied.StatusCode);
         user.Set(storesManagerId, "SESS-41", "STORES_MANAGER");

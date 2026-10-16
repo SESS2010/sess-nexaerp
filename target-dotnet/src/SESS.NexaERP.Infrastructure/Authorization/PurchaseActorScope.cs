@@ -59,11 +59,11 @@ public static class PurchaseActorScope
                 h.ResolvedEmployeeId == actor && h.ResolvedRoleCode == role && h.StepNumber > 0)));
     }
 
-    public static IQueryable<PurchaseRequisition> StockRequisitions(IQueryable<PurchaseRequisition> query, NexaErpDbContext db, ICurrentUser user)
+    public static IQueryable<PurchaseRequisition> StockRequisitions(IQueryable<PurchaseRequisition> query, NexaErpDbContext db, ICurrentUser user, DateOnly? scopeDate = null)
     {
         if (user.RoleCode is not ("STORES_EXECUTIVE" or "STORES_ASSISTANT" or "STORES_MANAGER"))
             return query.Where(_ => false);
-        var scopes = ActiveScopes(db, user, DateOnly.FromDateTime(DateTime.UtcNow));
+        var scopes = ActiveScopes(db, user, scopeDate ?? DateOnly.FromDateTime(DateTime.UtcNow));
         var actor = user.EmployeeId;
         return query.Where(p => p.OrganizationId == user.OrganizationId &&
             scopes.Any(s => s.CompanyId == p.CompanyId && (!s.WarehouseId.HasValue || s.WarehouseId == p.DeliveryWarehouseId) &&

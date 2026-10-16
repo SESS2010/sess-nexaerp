@@ -432,7 +432,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                         if (supplierInvoices is not null) await supplierInvoices(context);
                         if (intercompanyPurchase is not null) await intercompanyPurchase(context);
                     }, technicalWitnessClient: multiSerialQcWitness ? qcHost.Client : null,
-                    technicalWitnessActorId: multiSerialQcWitness ? technicalVerifierId : null, scopeAlignmentWitness: scopeAlignmentWitness));
+                    technicalWitnessActorId: multiSerialQcWitness ? technicalVerifierId : null, scopeAlignmentWitness: scopeAlignmentWitness,
+                    barcodeDateRuntimeConnection: multiSerialQcWitness && band.Code == "LOW" ? runtimeConnection : null));
             var runtimeOptions = new DbContextOptionsBuilder<NexaErpDbContext>().UseNpgsql(runtimeConnection).Options;
             await using (var notificationDb = new NexaErpDbContext(runtimeOptions))
             {
@@ -488,7 +489,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                     productionId, storesManagerId, "mir-consumable-approve", server.ReadDiagnosticLog)),
                 issueRace is null ? null : (draft, command) => issueRace(new(options, runtimeConnection,
                     draft, command, storesId, secondReceiptOperatorId, server.ReadDiagnosticLog, server.Restart)),
-                storesWorkload is null ? null : (stage,id)=>storesWorkload(new(options,runtimeConnection,stage,id,"MIR")));
+                storesWorkload is null ? null : (stage,id)=>storesWorkload(new(options,runtimeConnection,stage,id,"MIR")), barcodeDateWitness: multiSerialQcWitness);
 
             user.Set(tdId, "SESS-01", Rev869ARoleCodes.TechnicalDirector);
             await AssertStockReportsFromPurchaseWitness(client, options, user, managerId, tdId);
@@ -625,7 +626,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 await ProveSeededUomItemEditing(qcHost.Client, options, user, tdId, categoryId);
                 await ProveUnresolvedMasterImports(qcHost.Client, options, user, tdId, storesManagerId);
                 await ProveAccountsGrnReads(qcHost.Client, options, user, managerId, grns[0]);
-                await ProveReceiptBarcodeScope(qcHost.Client, options, user, storesId, secondReceiptOperatorId, managerId, storesManagerId, grns[0]);
+                await ProveReceiptBarcodeScope(qcHost.Client, options, user, storesId, secondReceiptOperatorId, managerId, storesManagerId, grns[0], runtimeConnection);
+                await ProveOtherBarcodeScopeDateBoundaries(options, runtimeConnection, user, storesId, storesManagerId, grns[0]);
                 await ProveStoresReturnInputs(qcHost.Client, options, user, storesId);
                 await ProveLegacyImportedCategoryRepair(server, qcHost.Client, options, user, qcId, tdId, runtimeConnection);
                 await ProveRequiredActorLookups(qcHost.Client, options, user, purchaseId, tdId);
@@ -806,7 +808,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Func<string, Guid, Task>? openOrders = null, bool overdueQuoteDates = false,
         Func<Rev869BDocumentResult, Task<Rev869BDocumentResult>>? amendIssued = null,
         Func<string,Guid,Task>? storesWorkload = null, Func<string,Guid,Task>? qcStock = null,
-        Func<string,Guid,Task>? supplierInvoices = null, decimal receiptQuantity = 1m, decimal requestedQuantity = 1m, decimal expectedHandoffQuantity = 1m, HttpClient? technicalWitnessClient = null, Guid? technicalWitnessActorId = null, bool scopeAlignmentWitness = false)
+        Func<string,Guid,Task>? supplierInvoices = null, decimal receiptQuantity = 1m, decimal requestedQuantity = 1m, decimal expectedHandoffQuantity = 1m, HttpClient? technicalWitnessClient = null, Guid? technicalWitnessActorId = null, bool scopeAlignmentWitness = false, string? barcodeDateRuntimeConnection = null)
     {
         var required = DateOnly.FromDateTime(DateTime.UtcNow).AddDays(30);
         user.Set(creatorId, "SESS-12", "IT_MANAGER");
@@ -908,6 +910,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         var barcodeStockPath = $"/api/v1/stores/stock-check/requisitions/{pr.PrNumber}/scan-candidates";
         var barcodeStockLines = await Get<GoodsReceiptBarcodeEndpoints.Candidate[]>(prClient, barcodeStockPath);
         Assert.Contains(barcodeStockLines, row => row.LineKey == "1" && row.ItemCode == stockCheckDetail.Lines[0].ItemCode);
+        if (barcodeDateRuntimeConnection is not null)
+            await ProveBarcodeScopeBusinessDateBoundaries(options, barcodeDateRuntimeConnection, user, storesId, barcodeStockPath);
 
         user.SetOrganization("SESS_PROPRIETORSHIP");
         using (var wrongCompany = await prClient.GetAsync($"/api/v1/stores/stock-check/requisitions/{pr.PrNumber}"))
@@ -1209,7 +1213,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Func<string>? readPostgresLog = null, bool serializedRace = false,
         Func<MaterialIssueRequestView, Task<MaterialIssueRequestView>>? approveRace = null,
         Func<MaterialIssueRequestView, CreateMaterialIssue, Task<MaterialIssueView>>? issueRace = null,
-        Func<string,Guid,Task>? storesWorkload = null)
+        Func<string,Guid,Task>? storesWorkload = null, bool barcodeDateWitness = false)
     {
         var companyId = Guid.Parse("70000000-0000-0000-0000-000000000001");
         var itemId = grn.Lines.Single().ItemId;
@@ -1523,7 +1527,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             fixture.ItemCode, fixture.DepartmentId, engineerId, purchaseId, productionId, storesId, approveRace: approveRace);
         await CreateIssueAndReturnSerialized(client, options, user, serializedGrn, fixture.UomId,
             fixture.DepartmentId, engineerId, purchaseId, productionId, storesId,
-            serializedRace ? job.Id : null, tdId, runtimeConnection, serializedRace ? returnRace : null, readPostgresLog, issueRace);
+            serializedRace ? job.Id : null, tdId, runtimeConnection, serializedRace ? returnRace : null, readPostgresLog, issueRace, barcodeDateWitness);
 
         user.Set(engineerId, "SESS-05", "TECHNICAL_SUPPORT_MANAGER",
             "TECHNICAL_SUPPORT_MANAGER", "SERVICE_ENGINEER");
@@ -1922,7 +1926,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Guid uomId, Guid departmentId, Guid engineerId, Guid purchaseId, Guid productionId, Guid storesId,
         Guid? jobOrderId = null, Guid? tdId = null, string? runtimeConnection = null,
         Func<ReturnFitmentRaceContext, Task<MaterialReturnView>>? returnRace = null, Func<string>? readPostgresLog = null,
-        Func<MaterialIssueRequestView, CreateMaterialIssue, Task<MaterialIssueView>>? issueRace = null)
+        Func<MaterialIssueRequestView, CreateMaterialIssue, Task<MaterialIssueView>>? issueRace = null, bool barcodeDateWitness = false)
     {
         var receivedLine = grn.Lines.Single();
         var serial = Assert.Single(receivedLine.Serials);
@@ -1965,6 +1969,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Assert.Contains(issueBarcodeRows, row => row.InventorySerialId == serial.InventorySerialId && row.StoredSerialNumber == serial.StoredSerialNumber && row.LineKey == request.Lines.Single().Id.ToString());
         Assert.Contains(issueBarcodeRows, row => row.ItemId == receivedLine.ItemId && row.InventorySerialId == null && row.RequiresSerial);
         Assert.DoesNotContain(issueBarcodeRows, row => row.ItemId == receivedLine.ItemId && row.InventorySerialId == null && !row.RequiresSerial);
+        if (barcodeDateWitness) await ProveBarcodeScopeBusinessDateBoundaries(options, runtimeConnection!, user, storesId, issueBarcodePath);
         user.SetOrganization("SESS_PROPRIETORSHIP");
         using (var barcodeWrongCompany = await client.GetAsync(issueBarcodePath))
             Assert.Contains(barcodeWrongCompany.StatusCode, new[] { HttpStatusCode.Forbidden, HttpStatusCode.NotFound });

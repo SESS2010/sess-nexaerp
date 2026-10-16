@@ -13,10 +13,10 @@ public static class StockCheckBarcodeEndpoints
     public static IEndpointRouteBuilder MapStockCheckBarcodeEndpoints(this IEndpointRouteBuilder endpoints)
     {
         endpoints.MapGet("/api/v1/stores/stock-check/requisitions/{prNumber}/scan-candidates",
-            async (string prNumber, NexaErpDbContext db, ICurrentUser user, CancellationToken ct) =>
+            async (string prNumber, NexaErpDbContext db, ICurrentUser user, HttpContext context, CancellationToken ct) =>
             {
                 var number = prNumber.Trim().ToUpperInvariant();
-                var pr = await PurchaseActorScope.StockRequisitions(db.PurchaseRequisitions.AsNoTracking(), db, user)
+                var pr = await PurchaseActorScope.StockRequisitions(db.PurchaseRequisitions.AsNoTracking(), db, user, BarcodeBusinessDate.ForRequest(context))
                     .Where(p => p.PrNumber == number && (p.Status == PurchaseRequisitionStatuses.StockCheckPending ||
                         p.Status == PurchaseRequisitionStatuses.FullyAvailable || p.Status == PurchaseRequisitionStatuses.PartiallyAvailable ||
                         p.Status == PurchaseRequisitionStatuses.NotAvailable))
@@ -37,9 +37,9 @@ public static class StockCheckBarcodeEndpoints
                 foreach (var line in lines)
                     foreach (var serial in serials.Where(s => s.ItemId == line.ItemId))
                         result.Add(line with { InventorySerialId = serial.InventorySerialId, StoredSerialNumber = serial.StoredSerialNumber });
-                result.AddRange(await BarcodeStockLotCandidates.Read(db, user, pr.CompanyId, lines, pr.DeliveryWarehouseId, ct));
+                result.AddRange(await BarcodeStockLotCandidates.Read(db, user, pr.CompanyId, lines, pr.DeliveryWarehouseId, ct, BarcodeBusinessDate.ForRequest(context)));
                 return Results.Ok(result);
-            }).RequireAuthorization().AddEndpointFilter(EmployeeScopeEndpointFilter.RequireResolvedEmployeeAndScope)
+            }).WithMetadata(new BarcodeBusinessDate()).RequireAuthorization().AddEndpointFilter(EmployeeScopeEndpointFilter.RequireResolvedEmployeeAndScope)
             .RequirePagePermission("stores.stock-check", PagePermissionActions.Verify);
         return endpoints;
     }
