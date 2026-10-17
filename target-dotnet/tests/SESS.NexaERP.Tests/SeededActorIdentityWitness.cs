@@ -11,7 +11,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
     {
         await using var db = new NexaErpDbContext(options);
         var identity = await new EfEmployeeIdentityResolver(db).ResolveAsync(user.IdentityIssuer!, user.IdentitySubject!,
-            user.OrganizationId, effectiveDate ?? DateOnly.FromDateTime(DateTime.UtcNow), CancellationToken.None);
+            user.OrganizationId, effectiveDate ?? db.BusinessDate, CancellationToken.None);
         Assert.True(identity.Success, identity.Message);
         Assert.Equal(user.EmployeeId, identity.EmployeeId);
         Assert.Contains(role, identity.RoleCodes);

@@ -70,7 +70,7 @@ public sealed partial class EfIntercompanyService
                 ?? throw new KeyNotFoundException("Purchase order was not found in the selected company.");
             var scope = await scopes.AuthorizeAsync(user.EmployeeId!.Value, user.RoleCode,
                 new RecordScopeTarget(Organization, po.RequestingDepartmentId, po.DeliveryWarehouseId, null, po.OwnerEmployeeId),
-                DateOnly.FromDateTime(DateTime.UtcNow), ct);
+                db.BusinessDate, ct);
             if (!scope.Allowed) throw new UnauthorizedAccessException(scope.Reason);
             var envelope = Rev869BCommandContextAuthorizer.CommandEnvelope.Create(Organization, "IntercompanyPurchase.Publish", request.IdempotencyKey, request);
             var attempt = await Rev869BCommandContextAuthorizer.OpenForCreationAsync(db, user, Organization, envelope, "IntercompanyPurchase", ct);

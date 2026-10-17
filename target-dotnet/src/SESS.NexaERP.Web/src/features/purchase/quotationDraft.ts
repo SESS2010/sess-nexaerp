@@ -127,12 +127,15 @@ export function comparisonQuotationChoices(
     if (!id || seen.has(id) || line.TechnicalComplianceSnapshot !== TECHNICALLY_COMPLIANT) continue
     seen.add(id)
     const quotation = byId.get(id)
+    // Approvers can name the compared vendors without listing unrelated quotations.
+    const embeddedLabel = line.QuotationNumber && line.VendorCode && line.VendorName
+      ? `${line.QuotationNumber} · ${line.VendorCode} — ${line.VendorName}` : null
     choices.push({
       quotationId: id,
-      label: quotation
+      label: embeddedLabel ?? (quotation
         ? `${quotation.QuotationNumber} · ${quotation.VendorCode} — ${quotation.VendorName}`
-        : `Quotation ${choices.length + 1} (not in your quotation list)`,
-      resolved: !!quotation,
+        : `Quotation ${choices.length + 1} (not in your quotation list)`),
+      resolved: !!embeddedLabel || !!quotation,
     })
   }
   return choices

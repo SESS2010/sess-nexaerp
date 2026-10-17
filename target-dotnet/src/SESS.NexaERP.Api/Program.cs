@@ -161,6 +161,7 @@ app.MapInventoryEndpoints();
 app.MapEstimatedBomEndpoints();
 app.MapProductionEngineeringEndpoints();
 app.MapMaterialIssueEndpoints();
+app.MapEmployeeMirPortalEndpoints();
 app.MapVendorBillEndpoints();
 app.MapSupplierInvoiceEndpoints();
 app.MapMachineDeliveryEndpoints();

@@ -114,7 +114,7 @@ public sealed class EfMachineDeliveryService(NexaErpDbContext db, ICurrentUser u
     };
     private async Task NotifyDirector(Guid company,JsonElement delivery,CancellationToken ct)
     {
-        var today=DateOnly.FromDateTime(DateTime.UtcNow); var now=DateTimeOffset.UtcNow;
+        var today=db.BusinessDate; var now=DateTimeOffset.UtcNow;
         var employees=await db.EmployeeRoleAssignments.AsNoTracking().Where(a=>a.CompanyId==company && a.Role!.Code=="MANAGING_DIRECTOR" && a.Role.IsActive &&
             (a.ApprovalStatus=="Approved" || a.ApprovalStatus=="SeedApproved") && a.EffectiveFrom<=today && (!a.EffectiveTo.HasValue || a.EffectiveTo>=today) &&
             a.Employee!.Status=="Active" && db.CompanyRoleActivations.Any(c=>c.CompanyId==company && c.RoleId==a.RoleId && c.IsEnabled && c.EffectiveFrom<=today && (!c.EffectiveTo.HasValue || c.EffectiveTo>=today)) &&

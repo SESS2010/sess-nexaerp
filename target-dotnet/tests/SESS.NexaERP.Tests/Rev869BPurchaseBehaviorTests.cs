@@ -82,7 +82,7 @@ public sealed class Rev869BPurchaseBehaviorTests
     [Fact]
     public async Task SevenDecimalInputMapsToHttp400()
     {
-        var services = new ServiceCollection().AddSingleton<IAuditWriter>(new CapturingAudit()).AddSingleton<ICurrentUser>(new TestCurrentUser(true)).BuildServiceProvider();
+        var services = new ServiceCollection().AddSingleton<SESS.NexaERP.Application.Common.IDateTimeProvider, SESS.NexaERP.Infrastructure.SystemClock>().AddSingleton<IAuditWriter>(new CapturingAudit()).AddSingleton<ICurrentUser>(new TestCurrentUser(true)).BuildServiceProvider();
         var http = new DefaultHttpContext { RequestServices = services };
         var result = await Rev869BPurchaseEndpoints.Run(() =>
         {
@@ -120,7 +120,7 @@ public sealed class Rev869BPurchaseBehaviorTests
     {
         var audit = new CapturingAudit();
         var noConnect = new NexaErpDbContext(new DbContextOptionsBuilder<NexaErpDbContext>().UseNpgsql("Host=127.0.0.1;Port=1;Database=never_connect;Username=never_connect").Options);
-        var services = new ServiceCollection().AddRouting().AddLogging().AddSingleton<IAuthenticationService>(new TestAuthenticationService()).AddSingleton<IAuditWriter>(audit)
+        var services = new ServiceCollection().AddSingleton<SESS.NexaERP.Application.Common.IDateTimeProvider, SESS.NexaERP.Infrastructure.SystemClock>().AddRouting().AddLogging().AddSingleton<IAuthenticationService>(new TestAuthenticationService()).AddSingleton<IAuditWriter>(audit)
             .AddSingleton<ICurrentUser>(new TestCurrentUser(true)).AddSingleton<IRecordScopeAuthorizer>(new AllowingScope())
             .AddSingleton<IPagePermissionService>(new DenyingPermission()).AddSingleton(noConnect).BuildServiceProvider();
         var builder = WebApplication.CreateBuilder();
@@ -152,7 +152,7 @@ public sealed class Rev869BPurchaseBehaviorTests
     {
         var authenticated = scenario != "unauthenticated";
         var audit = new CapturingAudit();
-        var services = new ServiceCollection()
+        var services = new ServiceCollection().AddSingleton<SESS.NexaERP.Application.Common.IDateTimeProvider, SESS.NexaERP.Infrastructure.SystemClock>()
             .AddSingleton<IAuditWriter>(audit)
             .AddSingleton<ICurrentUser>(new TestCurrentUser(authenticated))
             .BuildServiceProvider();
@@ -182,7 +182,7 @@ public sealed class Rev869BPurchaseBehaviorTests
     [Fact]
     public async Task AuditFailureCannotSilentlyPermitAnAuthorizationDenial()
     {
-        var services = new ServiceCollection()
+        var services = new ServiceCollection().AddSingleton<SESS.NexaERP.Application.Common.IDateTimeProvider, SESS.NexaERP.Infrastructure.SystemClock>()
             .AddSingleton<IAuditWriter>(new FailingAudit())
             .AddSingleton<ICurrentUser>(new TestCurrentUser(true))
             .BuildServiceProvider();

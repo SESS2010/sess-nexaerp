@@ -24,6 +24,8 @@ public static partial class PurchaseRequisitionEndpoints
         var correlation = string.IsNullOrWhiteSpace(request.IdempotencyKey) ? Correlation("STOCKCHECK") : request.IdempotencyKey.Trim();
         var existingCheck = await db.StockAvailabilityChecks.SingleOrDefaultAsync(x => x.PurchaseRequisitionId == pr.Id && x.CorrelationId == correlation, ct);
         if (existingCheck is not null) return Results.Ok(new { existingCheck.CheckNumber, existingCheck.ResultStatus });
+        await SESS.NexaERP.Infrastructure.Authorization.AccountsDocumentConflictGuard.RequireRequisitionDutyAsync(
+            db,user,pr,SESS.NexaERP.Domain.Authorization.AccountsDocumentDuty.Recorded,ct);
         var check = new StockAvailabilityCheck { CompanyId = pr.CompanyId, PurchaseRequisitionId = pr.Id, PurchaseRequisition = pr, CheckNumber = $"SC-{pr.PrNumber}-{DateTimeOffset.UtcNow:yyyyMMddHHmmss}", CheckedBy = user.LoginId, Remarks = request.Remarks.Trim(), CorrelationId = correlation, CreatedBy = user.LoginId };
         var anyShortage = false;
         var anyReservation = false;
@@ -39,7 +41,7 @@ public static partial class PurchaseRequisitionEndpoints
             {
                 return Results.BadRequest(new { message = ex.Message });
             }
-            var actorScopes = await SESS.NexaERP.Infrastructure.Authorization.PurchaseActorScope.ActiveScopes(db, user, DateOnly.FromDateTime(DateTime.UtcNow)).ToListAsync(ct);
+            var actorScopes = await SESS.NexaERP.Infrastructure.Authorization.PurchaseActorScope.ActiveScopes(db, user, db.BusinessDate).ToListAsync(ct);
             if (locations.Any(location => !actorScopes.Any(scope =>
                 (!scope.WarehouseId.HasValue || scope.WarehouseId == location.WarehouseId) &&
                 (!scope.RackBinId.HasValue || scope.RackBinId == location.RackBinId) &&
@@ -103,7 +105,7 @@ public static partial class PurchaseRequisitionEndpoints
 
     private static async Task<List<StockLocation>> ResolveLocations(PurchaseRequisitionLine line, PurchaseRequisition pr, StockCheckRequest request, NexaErpDbContext db, CancellationToken ct)
     {
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var today = db.BusinessDate;
         var requested = request.Locations?.Where(x => x.LineNumber == line.LineNumber).ToList() ?? [];
         if (requested.Count == 0)
         {

@@ -1,3 +1,4 @@
+import { businessDate } from '../../utils/businessDate'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import {
@@ -15,7 +16,7 @@ const number = new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximu
 const quantity = new Intl.NumberFormat('en-IN', { maximumFractionDigits: 6 })
 const PAGE_SIZE = 100
 
-const today = () => new Date().toISOString().slice(0, 10)
+const today = () => businessDate()
 const firstOfMonth = (iso: string) => `${iso.slice(0, 7)}-01`
 
 /** Money-like keys get two decimals; everything else numeric keeps its precision. */

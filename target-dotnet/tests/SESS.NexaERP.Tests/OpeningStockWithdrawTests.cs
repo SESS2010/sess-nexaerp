@@ -61,11 +61,11 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             END $assert$;
             """);
 
-        // Down refuses once WITHDRAWN evidence exists.
+        // Exercise this historical migration's own Down; later calendar guards deliberately refuse retained history first.
         var migrations = model.Database.GetMigrations().ToArray();
         var withdraw = Array.IndexOf(migrations, "20260926130000_OpeningStockWithdraw");
         Assert.True(withdraw > 0);
-        server.AssertRejected("withdraw-down-refused.sql", migrator.GenerateScript(migrations[^1], migrations[withdraw - 1]), "refuses retained WITHDRAWN evidence");
+        server.AssertRejected("withdraw-down-refused.sql", migrator.GenerateScript(migrations[withdraw], migrations[withdraw - 1]), "refuses retained WITHDRAWN evidence");
     }
 
     private static string Actor(string employee, string role) => $"""

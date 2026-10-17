@@ -1,3 +1,4 @@
+using SESS.NexaERP.Infrastructure.Authorization;
 using System.Data;
 using Microsoft.EntityFrameworkCore;
 using SESS.NexaERP.Application.Audit;
@@ -45,6 +46,7 @@ public sealed class EfPurchaseRequisitionWorkflowService(
             ?? throw new Rev869BNotFoundException("Purchase requisition not found.");
         if (pr.Status != PurchaseRequisitionStatuses.PendingApproval) throw new Rev869BConflictException("PR must be pending approval.");
         ValidateRequest(request, pr.Version, action is "Reject" or "RequestRevision");
+        await AccountsDocumentConflictGuard.RequireRequisitionDutyAsync(db,user,pr,AccountsDocumentDuty.L1Decision,ct);
         var priorEmployee = pr.CompletedApprovalStepCount == 1
             ? await db.PurchaseRequisitionApprovalHistories.AsNoTracking()
                 .Where(x => x.PurchaseRequisitionId == pr.Id && x.ApprovalCycle == pr.ApprovalCycle && x.StepNumber == 1 && x.Action == "Approve")
@@ -90,13 +92,18 @@ public sealed class EfPurchaseRequisitionWorkflowService(
     private async Task<PurchaseRequisitionDetail> ChangeStatusAsync(string number, PurchaseRequisitionActionRequest request,
         string action, string? requiredStatus, string nextStatus, string module, CancellationToken ct)
     {
+        user.RequireAccountsBackupPageAction("purchase.requisitions",action=="DepartmentVerify"?"verify":action.ToLowerInvariant());
         await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
         var pr = await Scoped(IncludeDetail(db.PurchaseRequisitions)).SingleOrDefaultAsync(x => x.PrNumber == Normalize(number), ct)
             ?? throw new Rev869BNotFoundException("Purchase requisition not found.");
         ValidateRequest(request, pr.Version, action is "Resubmit" or "Cancel" or "Hold");
         if (requiredStatus is not null && pr.Status != requiredStatus)
             throw new Rev869BConflictException($"Invalid PR status sequence. Required: {requiredStatus}.");
-        if (action == "DepartmentVerify") await RequireMappedDepartmentVerifierAsync(pr, ct);
+        if (action == "DepartmentVerify")
+        {
+            await AccountsDocumentConflictGuard.RequireRequisitionDutyAsync(db,user,pr,AccountsDocumentDuty.DepartmentVerified,ct);
+            await RequireMappedDepartmentVerifierAsync(pr, ct);
+        }
         var correlation = Correlation(request, action);
         if (await db.PurchaseRequisitionStatusHistories.AnyAsync(x => x.PurchaseRequisitionId == pr.Id && x.CorrelationId == correlation, ct))
             return ToDetail(pr);
@@ -137,15 +144,21 @@ public sealed class EfPurchaseRequisitionWorkflowService(
         var actor=RequireActor();
         if(actor==pr.RequesterEmployeeId||actor==pr.CreatorEmployeeId)throw new UnauthorizedAccessException("The requester cannot department-verify their own purchase requisition.");
         if(!pr.RequestingDepartmentId.HasValue)throw new Rev869BConflictException("Requesting department is required for department verification.");
-        var today=DateOnly.FromDateTime(DateTime.UtcNow);var mappings=await db.DepartmentApprovalMappings.AsNoTracking().Where(x=>x.CompanyId==pr.CompanyId&&x.DepartmentId==pr.RequestingDepartmentId.Value&&x.ApprovalRouteCode==PurchaseRequisitionApprovalRoutes.Manager&&x.IsActive&&x.EffectiveFrom<=today&&(!x.EffectiveTo.HasValue||x.EffectiveTo.Value>=today)).Take(2).ToListAsync(ct);
+        var today=db.BusinessDate;var mappings=await db.DepartmentApprovalMappings.AsNoTracking().Where(x=>x.CompanyId==pr.CompanyId&&x.DepartmentId==pr.RequestingDepartmentId.Value&&x.ApprovalRouteCode==PurchaseRequisitionApprovalRoutes.Manager&&x.IsActive&&x.EffectiveFrom<=today&&(!x.EffectiveTo.HasValue||x.EffectiveTo.Value>=today)).Take(2).ToListAsync(ct);
         if(mappings.Count!=1)throw new Rev869BConflictException("A single effective department approval mapping is required for department verification.");
         var mapping=mappings[0];
-        if(mapping.PrimaryApproverEmployeeId!=actor||!string.Equals(user.RoleCode,mapping.ApproverRoleCode,StringComparison.OrdinalIgnoreCase))throw new UnauthorizedAccessException("Department verification is restricted to the effective mapped department approver.");
+        var namedBackup=AccountsBackupDecisionContext.CanUse(user) && user.OrganizationId==pr.OrganizationId &&
+            mapping.ApproverRoleCode=="ACCOUNTS_MANAGER" &&
+            await db.Employees.AsNoTracking().AnyAsync(e=>e.Id==mapping.PrimaryApproverEmployeeId&&e.EmployeeCode=="SESS-14",ct);
+        if((mapping.PrimaryApproverEmployeeId!=actor&&!namedBackup)||!string.Equals(user.RoleCode,mapping.ApproverRoleCode,StringComparison.OrdinalIgnoreCase))
+            throw new UnauthorizedAccessException("Department verification is restricted to the effective mapped department approver or the independent named accounts backup.");
     }
     private IQueryable<PurchaseRequisition> Scoped(IQueryable<PurchaseRequisition> query)
     {
         _ = RequireActor();
-        return PurchaseRequisitionVisibility.Apply(query, user, db);
+        return AccountsBackupDecisionContext.CanUse(user)
+            ? PurchaseActorScope.ReadRequisitions(query,db,user)
+            : PurchaseRequisitionVisibility.Apply(query, user, db);
     }
 
     private static IQueryable<PurchaseRequisition> IncludeDetail(IQueryable<PurchaseRequisition> query) =>

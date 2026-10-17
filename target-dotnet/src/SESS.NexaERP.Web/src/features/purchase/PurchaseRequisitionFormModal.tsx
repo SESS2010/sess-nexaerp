@@ -1,3 +1,4 @@
+import { businessDate } from '../../utils/businessDate'
 import { useEffect, useMemo, useState } from 'react'
 import {
   createPurchaseRequisition,
@@ -25,7 +26,7 @@ interface DraftLine {
 }
 
 function today(): string {
-  return new Date().toISOString().slice(0, 10)
+  return businessDate()
 }
 
 // Estimated unit rate has no default. An untouched 0 silently drops the

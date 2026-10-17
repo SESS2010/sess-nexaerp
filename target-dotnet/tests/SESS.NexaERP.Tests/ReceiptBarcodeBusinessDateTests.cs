@@ -23,13 +23,13 @@ public sealed class BarcodeBusinessDateTests
     [InlineData("2026-10-15T23:59:59Z", "2026-10-01", "2026-10-15", "2026-10-16", false)]
     [InlineData("2026-10-16T00:00:00Z", "2026-10-01", "2026-10-15", "2026-10-16", false)]
     [InlineData("2026-10-16T18:29:59Z", "2026-10-01", "2026-10-16", "2026-10-16", true)]
-    public async Task ReceiptScopeStartsAndEndsOnKolkataDateAcrossMidnightAndUtcBoundary(
+    public async Task GeneralScopeStartsAndEndsOnKolkataDateAcrossMidnightAndUtcBoundary(
         string utc, string from, string? to, string expectedDate, bool allowed)
     {
         var clock = new Clock(DateTimeOffset.Parse(utc));
         var scope = new Scope(DateOnly.Parse(from), to is null ? null : DateOnly.Parse(to));
         using var services = Services(clock, scope);
-        var context = Context(services, true);
+        var context = Context(services, false);
         context.Request.Headers["X-Business-Date"] = "1900-01-01"; // No client-selected date policy.
         var nextCalled = false;
         var result = await EmployeeScopeEndpointFilter.RequireResolvedEmployeeAndScope(
@@ -50,7 +50,7 @@ public sealed class BarcodeBusinessDateTests
         var clock = new Clock(DateTimeOffset.Parse("2026-10-15T18:29:59Z"));
         var scope = new Scope(new(2026, 1, 1), null);
         using var services = Services(clock, scope);
-        var context = Context(services, true);
+        var context = Context(services, false);
         await EmployeeScopeEndpointFilter.RequireResolvedEmployeeAndScope(new DefaultEndpointFilterInvocationContext(context), _ => ValueTask.FromResult<object?>(null));
         clock.Now = DateTimeOffset.Parse("2026-10-15T18:30:00Z");
         await EmployeeScopeEndpointFilter.RequireResolvedEmployeeAndScope(new DefaultEndpointFilterInvocationContext(context), _ => ValueTask.FromResult<object?>(null));
@@ -61,15 +61,15 @@ public sealed class BarcodeBusinessDateTests
     }
 
     [Fact]
-    public async Task UnmarkedLegacyEndpointsRetainTheirExistingUtcDatePolicy()
+    public async Task UnmarkedEndpointsUseTheSameTrustedKolkataDate()
     {
         var clock = new Clock(DateTimeOffset.Parse("1999-01-01T00:00:00Z"));
         var scope = new Scope(new(1900, 1, 1), null);
         using var services = Services(clock, scope);
-        var before = DateOnly.FromDateTime(DateTime.UtcNow);
+        var expected = new DateOnly(1999, 1, 1);
         await EmployeeScopeEndpointFilter.RequireResolvedEmployeeAndScope(new DefaultEndpointFilterInvocationContext(Context(services, false)), _ => ValueTask.FromResult<object?>(null));
-        Assert.Contains(scope.SeenDate, new[] { before, DateOnly.FromDateTime(DateTime.UtcNow) });
-        Assert.Equal(0, clock.Reads);
+        Assert.Equal(expected, scope.SeenDate);
+        Assert.Equal(1, clock.Reads);
     }
 
     private static ServiceProvider Services(Clock clock, Scope scope) => new ServiceCollection()

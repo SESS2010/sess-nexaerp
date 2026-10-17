@@ -33,7 +33,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         {
             var assignment = new EffectiveRoleAssignment(Guid.NewGuid(), role.Code, assignmentType);
             var projected = await service.ResolveEffectivePermissionsAsync([assignment], "SESS_PVT_LTD", Guid.Empty, default);
-            var expected = new HashSet<string>(RoleAuthorityResolution.UniversalEmployeePermissions, StringComparer.Ordinal);
+            var expected = new HashSet<string>(MirRequesterPolicy.IsMirOnly([role.Code]) ? [] : RoleAuthorityResolution.UniversalEmployeePermissions, StringComparer.Ordinal);
             foreach (var grant in grants.Where(x => x.RoleId == role.Id))
             foreach (var action in EfPagePermissionService.SupportedActions)
             {
@@ -41,6 +41,13 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 if (EfPagePermissionService.RoleGrantAllows(grant, grant.PageDefinition.PageKey, action) &&
                     RoleAuthorityResolution.CanAssignmentExercise(assignmentType, permission))
                     expected.Add(permission);
+            }
+            if (role.Code == MirRequesterPolicy.Role)
+            {
+                expected.RemoveWhere(permission => !MirRequesterPolicy.AllowsPortalAction(permission[..permission.LastIndexOf(':')], permission[(permission.LastIndexOf(':') + 1)..]));
+                Assert.DoesNotContain("masters.items:view", projected);
+                Assert.DoesNotContain("masters.items:create", projected);
+                Assert.All(projected, permission => Assert.StartsWith(MirRequesterPolicy.Page + ":", permission));
             }
             Assert.Equal(expected.Order(StringComparer.Ordinal), projected);
         }

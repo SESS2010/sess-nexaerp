@@ -5,6 +5,7 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using SESS.NexaERP.Application.Purchase;
 using SESS.NexaERP.Domain.Authorization;
+using SESS.NexaERP.Infrastructure.Authorization;
 using SESS.NexaERP.Domain.Purchase;
 
 namespace SESS.NexaERP.Infrastructure.Purchase;
@@ -30,11 +31,11 @@ public sealed partial class EfRev869BPurchaseService
         var quotes = await db.VendorQuotations.AsNoTracking().Include(x => x.Lines).ThenInclude(x => x.RequestForQuotationLine).Where(x => x.OrganizationId == organization && x.RfqVendorInvitation!.RequestForQuotationId == rfq.Id && x.IsCurrentRevision && x.Status == Rev869BStatuses.TechnicallyCompliant).ToListAsync(ct);
         if (quotes.Count == 0) throw new Rev869BConflictException("No current technically compliant quotation is available.");
         if (quotes.Any(x => x.CurrencyCode != rfq.CurrencyCode)) throw new Rev869BConflictException("Currency conversion unavailable; quotations must match RFQ currency.");
-        var next = await NextNumberAsync(organization, "CMP", DateOnly.FromDateTime(DateTime.UtcNow), ct); var comparison = new CommercialComparison { OrganizationId = organization, ComparisonNumber = next.Number, FinancialYear = next.Year, SequenceNumber = next.Sequence, RequestForQuotationId = rfq.Id, OwnerEmployeeId = actor, CreatorEmployeeId = actor, CurrencyCode = rfq.CurrencyCode, IsSingleSource = rfq.IsSingleSource, SingleSourceJustification = rfq.SingleSourceJustification, IdempotencyKey = comparisonFingerprint, TransitionCorrelationId = comparisonFingerprint, CreatedBy = user.LoginId };
+        var next = await NextNumberAsync(organization, "CMP", db.BusinessDate, ct); var comparison = new CommercialComparison { OrganizationId = organization, ComparisonNumber = next.Number, FinancialYear = next.Year, SequenceNumber = next.Sequence, RequestForQuotationId = rfq.Id, OwnerEmployeeId = actor, CreatorEmployeeId = actor, CurrencyCode = rfq.CurrencyCode, IsSingleSource = rfq.IsSingleSource, SingleSourceJustification = rfq.SingleSourceJustification, IdempotencyKey = comparisonFingerprint, TransitionCorrelationId = comparisonFingerprint, CreatedBy = user.LoginId };
         comparison.CompanyId = rfq.CompanyId;
         foreach (var quote in quotes) foreach (var line in quote.Lines)
         {
-            var recalculated = Recalculate(line, organization, DateOnly.FromDateTime(quote.ReceivedAt.UtcDateTime));
+            var recalculated = Recalculate(line, organization, quote.ReceivedAt);
             comparison.Lines.Add(new CommercialComparisonLine { VendorQuotationLineId = line.Id, VendorId = quote.VendorId, TechnicalComplianceSnapshot = Rev869BStatuses.TechnicallyCompliant, CommercialSnapshotJson = ComparisonSnapshotJson(comparison, quote, line, recalculated), DeliverySnapshot = line.PromisedDeliveryDate.ToString("yyyy-MM-dd"), WarrantySnapshot = quote.WarrantyTermsSnapshot, PaymentTermsSnapshot = quote.PaymentTermsSnapshot, TotalPayableValue = recalculated.Breakdown.TotalPayableValue, CreatedBy = user.LoginId });
         }
         foreach (var comparisonLine in comparison.Lines) comparisonLine.CompanyId = comparison.CompanyId;
@@ -68,7 +69,7 @@ public sealed partial class EfRev869BPurchaseService
         if (comparison.IsSingleSource && string.IsNullOrWhiteSpace(justification)) throw new Rev869BValidationException("Single-source recommendation justification is required.");
         var newVersion = checked(request.Version + 1); var remarks = RequiredRemarks(request.RecommendationRemarks);
         var recalculations = quote.Lines.ToDictionary(x => x.Id,
-            x => Recalculate(x, organization, DateOnly.FromDateTime(quote.ReceivedAt.UtcDateTime)));
+            x => Recalculate(x, organization, quote.ReceivedAt));
         var total = Rev869BCommercialCalculator.Add(recalculations.Values.Select(x => x.Breakdown.TotalPayableValue).ToArray());
         var requestingDepartmentId = await db.RequestForQuotations.AsNoTracking()
             .Where(x => x.Id == comparison.RequestForQuotationId && x.OrganizationId == organization)
@@ -128,6 +129,7 @@ public sealed partial class EfRev869BPurchaseService
         var priorEmployee = c.CompletedApprovalStepCount == 1
             ? await db.PurchaseTransactionApprovalHistories.AsNoTracking().Where(x => x.CommercialComparisonId == c.Id && x.ApprovalCycle == c.ApprovalCycle && x.StepNumber == 1 && x.Action == "Approve").Select(x => (Guid?)x.ResolvedEmployeeId).SingleOrDefaultAsync(ct)
             : null;
+        await AccountsDocumentConflictGuard.RequireComparisonDutyAsync(db,user,c,AccountsDocumentDuty.L1Decision,ct);
         var decision = approvalWorkflow.AuthorizeNextStep(c.ApprovalWorkflowSnapshotJson, c.ApprovalCycle,
             c.CompletedApprovalStepCount, c.CreatorEmployeeId, actor, user.RoleCodes, priorEmployee);
         SetApprovalActorRole(decision.ResolvedRoleCode);
@@ -159,7 +161,7 @@ public sealed partial class EfRev869BPurchaseService
             .Where(x => x.CommercialComparisonId == c.Id && x.Action == "Approve" && x.ToStatus == Rev869BStatuses.Approved)
             .OrderByDescending(x => x.CreatedAt).FirstOrDefaultAsync(ct)
             ?? throw new Rev869BConflictException("Approved comparison history evidence is missing.");
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var today = db.BusinessDate;
         foreach (var category in quote.Lines.Select(x => x.RequestForQuotationLine!.Item!.CategoryId).Distinct()) if (!await vendors.IsEligibleAsync(quote.VendorId, c.OrganizationId, category, today, ct)) throw new Rev869BConflictException("Selected vendor category qualification is no longer effective.");
         var next = await NextNumberAsync(c.OrganizationId, "PO", today, ct); var po = new PurchaseOrder { OrganizationId = c.OrganizationId, PoNumber = next.Number, FinancialYear = next.Year, SequenceNumber = next.Sequence, RootPurchaseOrderId = Guid.NewGuid(), RevisionNumber = 1, CommercialComparisonId = c.Id, VendorId = quote.VendorId, RequestingDepartmentId = rfq.RequestingDepartmentId, DeliveryWarehouseId = rfq.DeliveryWarehouseId, OwnerEmployeeId = actor, CreatorEmployeeId = actor, Status = Rev869BStatuses.Draft, CurrencyCode = quote.CurrencyCode, PaymentTermsSnapshot = quote.PaymentTermsSnapshot, DeliveryTermsSnapshot = quote.DeliveryTermsSnapshot, WarrantyTermsSnapshot = quote.WarrantyTermsSnapshot, IdempotencyKey = poFingerprint, TransitionCorrelationId = poFingerprint, CreatedBy = user.LoginId };
         po.CompanyId = c.CompanyId;
@@ -167,7 +169,7 @@ public sealed partial class EfRev869BPurchaseService
         foreach (var ql in quote.Lines)
         {
             var source = ql.RequestForQuotationLine!; var ordered = await OrderedQuantityAsync(source.PurchaseRequisitionLineId, ct); var remaining = source.ApprovedQuantitySnapshot - ordered; if (ql.Quantity > remaining) throw new Rev869BConflictException("Cumulative PO quantity exceeds approved outstanding quantity."); var comparisonLine = c.Lines.SingleOrDefault(x => x.VendorQuotationLineId == ql.Id) ?? throw new Rev869BConflictException("Selected quotation line is outside comparison.");
-            var recalculated = Recalculate(ql, c.OrganizationId, DateOnly.FromDateTime(quote.ReceivedAt.UtcDateTime)); var calc = recalculated.Breakdown;
+            var recalculated = Recalculate(ql, c.OrganizationId, quote.ReceivedAt); var calc = recalculated.Breakdown;
             var input = new Rev869BCommercialInput(ql.Quantity, ql.UnitRate, ql.DiscountValue, ql.PackingForwarding, ql.Freight, ql.Insurance, ql.OtherCharges, recalculated.Tax.CgstRate, recalculated.Tax.SgstRate, recalculated.Tax.IgstRate, recalculated.Tax.CessRate, ql.RoundOff, recalculated.Tax.RoundingScale)
             { HeaderDiscountValue = ql.HeaderDiscountValue, CurrencyCode = quote.CurrencyCode, ExchangeRate = 1m };
             var immutable = new Rev869BPoCommercialSnapshot(quote.Id, ql.Id, rfq.Id, c.Id, quote.VendorId, c.OrganizationId,
@@ -183,7 +185,7 @@ public sealed partial class EfRev869BPurchaseService
         po.OtherCharges = aggregate.OtherCharges; po.RoundOff = aggregate.RoundOff; po.TotalPayableValue = aggregate.TotalPayableValue;
         foreach (var poLine in po.Lines) poLine.CompanyId = po.CompanyId;
         po.ApprovalRoute = c.ApprovalRoute;
-        po.ApprovalPolicySnapshotJson = JsonSerializer.Serialize(new { po.OrganizationId, RouteCode = po.ApprovalRoute, ApprovalValue = po.TotalPayableValue, EffectiveOn = DateOnly.FromDateTime(DateTime.UtcNow) }, JsonOptions);
+        po.ApprovalPolicySnapshotJson = JsonSerializer.Serialize(new { po.OrganizationId, RouteCode = po.ApprovalRoute, ApprovalValue = po.TotalPayableValue, EffectiveOn = db.BusinessDate }, JsonOptions);
         db.PurchaseOrders.Add(po);
         AddPoHistory(po, "Create", "", po.Status, "Created from approved comparison", poFingerprint); AddStatus("PurchaseOrder", po.Id, po.PoNumber, null, po.Status, "Create", "Created from approved comparison", poFingerprint);
         await SaveAuthorizedChangesAsync(ct); await WriteAuditAsync("Purchase", "CreatePO", nameof(PurchaseOrder), po.Id.ToString(), null, new { po.PoNumber, po.TotalPayableValue }, ct); await tx.CommitAsync(ct); return Result(po.Id, po.PoNumber, po.Status, po.Version);
@@ -360,6 +362,7 @@ public sealed partial class EfRev869BPurchaseService
         var priorStepEmployee = po.CompletedApprovalStepCount == 1
             ? await db.PurchaseOrderHistories.AsNoTracking().Where(x => x.PurchaseOrderId == po.Id && x.ApprovalCycle == po.ApprovalCycle && x.StepNumber == 1 && x.Action == "Approve").Select(x => x.ResolvedEmployeeId).SingleOrDefaultAsync(ct)
             : null;
+        await AccountsDocumentConflictGuard.RequirePurchaseOrderDutyAsync(db,user,po,AccountsDocumentDuty.L1Decision,ct);
         var decision = approvalWorkflow.AuthorizeNextStep(po.ApprovalWorkflowSnapshotJson, po.ApprovalCycle,
             po.CompletedApprovalStepCount, po.CreatorEmployeeId, actor, user.RoleCodes, priorStepEmployee);
         SetApprovalActorRole(decision.ResolvedRoleCode);

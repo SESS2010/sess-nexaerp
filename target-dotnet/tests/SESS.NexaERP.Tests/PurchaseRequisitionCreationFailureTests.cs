@@ -50,7 +50,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 x => new EffectiveRoleAssignment(x.Id,x.Role!.Code,x.AssignmentType)));
         var actor = new TaxWorkflowUser(actorId,subject,"PURCHASE_EXECUTIVE",assignments);
         await using var host = await PurchaseFlowHost.StartAsync(runtime,actor,true,true);
-        var required = DateOnly.FromDateTime(DateTime.UtcNow).AddDays(30);
+        var required = SESS.NexaERP.Application.Common.BusinessCalendar.DateAt(DateTimeOffset.UtcNow).AddDays(30);
         var body = new CreatePurchaseRequisitionRequest("SESS_PVT_LTD","IT","SESS-15",required,"NORMAL",
             "Network retry witness","TRIAL-WH-C01",null,null,null,null,null,
             [new("TRIAL-ITEM-001",1,25,required,"TRIAL-WH-C01",null,null,null)]);

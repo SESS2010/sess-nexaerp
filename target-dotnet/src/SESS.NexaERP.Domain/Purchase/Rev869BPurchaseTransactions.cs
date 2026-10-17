@@ -134,6 +134,8 @@ public sealed record Rev869BTaxRuleSnapshot(
     bool IsExempt, bool IsReverseCharge, string CurrencyCode, int RoundingScale,
     DateOnly EffectiveFrom, DateOnly? EffectiveTo, string ApprovalStatus, bool IsActive)
 {
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? QuotationDateBasis { get; init; }
     public string ItcEligibility { get; init; } = InputTaxCreditEligibility.FullyRecoverable;
     public decimal? RecoverableTaxPercent { get; init; }
 }
@@ -641,7 +643,7 @@ public static class Rev869BPurchaseOrderSnapshot
                 commercial.ComparisonApprovalRoute != purchaseOrder.ApprovalRoute || commercial.ComparisonApprovedAt == default ||
                 tax.OrganizationId != purchaseOrder.OrganizationId)
                 throw new InvalidOperationException("The pre-issue provenance, qualification, attachment or approval snapshot is incomplete or mismatched.");
-            var result = Rev869BCommercialCalculator.Reconcile(commercial.Input, commercial.Result, tax, DateOnly.FromDateTime(commercial.QuotationReceivedAt.UtcDateTime));
+            var result = Rev869BCommercialCalculator.Reconcile(commercial.Input, commercial.Result, tax, SESS.NexaERP.Domain.Common.BusinessDatePolicy.EventDate(commercial.QuotationReceivedAt, tax.QuotationDateBasis));
             if (result.TotalPayableValue != line.TotalPayableValue) throw new InvalidOperationException("The pre-issue line payable value is stale or mismatched.");
             reconciled.Add(result);
         }

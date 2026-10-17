@@ -1,3 +1,4 @@
+import { businessDate } from '../utils/businessDate'
 import { ApiError, api } from './client'
 import type {
   CreateStockAdjustmentRequest,
@@ -85,9 +86,9 @@ export function stockAdjustmentRefusedDefinitively(error: unknown): boolean {
   return error instanceof ApiError && (error.status === 400 || error.status === 403 || error.status === 404 || error.status === 409)
 }
 
-/** The server's calendar date (UTC), yyyy-MM-dd: the posting-date policy compares against this, not local time. */
-export function serverTodayUtc(): string {
-  return new Date().toISOString().slice(0, 10)
+/** Kolkata UI date default; the server independently authorizes the actual posting date. */
+export function businessToday(): string {
+  return businessDate()
 }
 
 /** Days between two yyyy-MM-dd dates (b − a), with no time-zone shift. */

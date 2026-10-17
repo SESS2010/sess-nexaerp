@@ -18,7 +18,7 @@ public static class PurchaseRequisitionVisibility
             return query.Where(_ => false);
 
         query = query.Where(x => x.OrganizationId == user.OrganizationId);
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var today = db.BusinessDate;
         var employeeId = user.EmployeeId.Value;
         var scopes = EffectiveScopes(db, user.OrganizationId, employeeId, today);
         if (user.RoleCodes.Any(Rev869ARoleCodes.IsExplicitCrossScopeRole) &&
@@ -50,7 +50,7 @@ public static class PurchaseRequisitionVisibility
         if (!user.IsAuthenticated || !user.EmployeeId.HasValue || string.IsNullOrWhiteSpace(user.OrganizationId))
             return false;
 
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var today = db.BusinessDate;
         var scopes = EffectiveScopes(db, user.OrganizationId, user.EmployeeId.Value, today);
         if (user.RoleCodes.Any(Rev869ARoleCodes.IsExplicitCrossScopeRole) &&
             await scopes.AnyAsync(x => x.AllowsPrivilegedCrossScope, ct))

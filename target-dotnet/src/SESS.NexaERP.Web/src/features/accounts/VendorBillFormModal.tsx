@@ -1,3 +1,4 @@
+import { businessDate } from '../../utils/businessDate'
 import { useMemo, useState, type FormEvent } from 'react'
 import { getGoodsReceipt, listGoodsReceipts } from '../../api/goodsReceipts'
 import { createVendorBillFromGrn } from '../../api/vendorBills'
@@ -43,7 +44,7 @@ export function VendorBillFormModal({ onClose, onSaved }: Props) {
   const [looking, setLooking] = useState(false)
 
   const [billNumber, setBillNumber] = useState('')
-  const [billDate, setBillDate] = useState(new Date().toISOString().slice(0, 10))
+  const [billDate, setBillDate] = useState(businessDate())
   const [lines, setLines] = useState<Record<string, LineDraft>>({})
   const [charges, setCharges] = useState<ChargeDraft[]>([])
   const [error, setError] = useState<unknown>(null)

@@ -64,7 +64,32 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Assert.Equal(0, await DatabasePrincipalCommand.RunAsync(["database-principals", "provision"]));
         server.Execute("opening-stock-principal-rerun-acl.sql", OpeningStockPrincipalAssertions);
         server.Execute("opening-stock-witness.sql", WitnessSql);
-        server.Execute("opening-stock-report-schema.sql",migrator.GenerateScript(target,migrations[^1]));
+        // Existing opening instants, quantities and values must survive the prospective date upgrade.
+        const string openingLegacySnapshot = """
+            SELECT
+              (SELECT jsonb_agg(jsonb_build_object('id',"Id",'at',"ReceivedAt",'qty',"QuantityReceived",
+                'rate',"UnitCost",'value',"LayerValue",'basis',"CostBasis") ORDER BY "Id")
+                FROM advance.fifo_inventory_cost_layers) fifo,
+              (SELECT jsonb_agg(jsonb_build_object('id',"Id",'at',"EffectiveFrom",'qty',"AssignedQuantity") ORDER BY "Id")
+                FROM advance.inventory_custody_assignments) custody
+            """;
+        server.Execute("opening-stock-legacy-instant-snapshot.sql", "CREATE TABLE public.opening_legacy_instants AS " + openingLegacySnapshot);
+        const string inventoryDateHead = "20261018031500_KolkataStockAdjustmentInstants";
+        var beforeInventoryDates = migrations[Array.IndexOf(migrations, "20261018030000_KolkataOpeningStockInstants") - 1];
+        server.Execute("opening-stock-report-schema.sql", migrator.GenerateScript(target, inventoryDateHead));
+        // Legacy rows existed before installation: round-trip must retain them and permit restoring their old policy.
+        server.Execute("opening-stock-legacy-date-down.sql", migrator.GenerateScript(inventoryDateHead, beforeInventoryDates));
+        server.Execute("opening-stock-legacy-date-reapply.sql", migrator.GenerateScript(beforeInventoryDates, migrations[^1]));
+        server.Execute("opening-stock-legacy-instants-preserved.sql", "CREATE TEMP TABLE opening_current_instants AS " + openingLegacySnapshot + ";" + """
+            DO $assert$ BEGIN
+              IF EXISTS(SELECT 1 FROM public.opening_legacy_instants b CROSS JOIN opening_current_instants a
+                  WHERE b.fifo IS DISTINCT FROM a.fifo OR b.custody IS DISTINCT FROM a.custody) THEN
+                RAISE EXCEPTION 'Upgrade changed retained opening instants, quantities or valuation.';
+              END IF;
+            END $assert$;
+            """);
+        // Match the installer sequence: newly migrated functions receive their production owner and ACLs.
+        Assert.Equal(0, await DatabasePrincipalCommand.RunAsync(["database-principals", "provision"]));
         server.Execute("opening-stock-report-login.sql","""UPDATE advance.employees SET "LoginEnabled"=true WHERE "EmployeeCode" IN ('SESS-01','SESS-14');""");
         await using var ownerDb = new NexaErpDbContext(new DbContextOptionsBuilder<NexaErpDbContext>().UseNpgsql(server.ConnectionString).Options);
         var director = await ownerDb.Employees.SingleAsync(row => row.EmployeeCode == "SESS-01");

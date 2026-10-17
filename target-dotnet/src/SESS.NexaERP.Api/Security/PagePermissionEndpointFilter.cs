@@ -1,4 +1,5 @@
-﻿using SESS.NexaERP.Application.Audit;
+using SESS.NexaERP.Domain.Identity;
+using SESS.NexaERP.Application.Audit;
 using SESS.NexaERP.Application.Authorization;
 using SESS.NexaERP.Application.Common;
 
@@ -18,6 +19,19 @@ public static class PagePermissionEndpointFilter
                 await audit.WriteAsync("Security", "Denied", "Identity", pageKey, null,
                     new { reason = "Authenticated employee identity is unresolved", permission }, httpContext.RequestAborted);
                 return Results.Unauthorized();
+            }
+            if (AccountsBackupIdentityPolicy.IsBackup(currentUser.IdentityAuthorityType) &&
+                !AccountsBackupIdentityPolicy.AllowsPageAction(pageKey,permission))
+            {
+                await audit.WriteAsync("Security", "Denied", pageKey, permission, null,
+                    new { reason = "Accounts identity action boundary", currentUser.EmployeeId }, httpContext.RequestAborted);
+                return Results.Forbid();
+            }
+            if (MirRequesterPolicy.IsMirOnly(currentUser.RoleCodes) && !MirRequesterPolicy.AllowsMirAction(currentUser.RoleCodes,pageKey,permission))
+            {
+                await audit.WriteAsync("Security", "Denied", pageKey, permission, null,
+                    new { reason = "MIR requester portal only", currentUser.EmployeeId }, httpContext.RequestAborted);
+                return Results.Forbid();
             }
             var permissions = httpContext.RequestServices.GetRequiredService<IPagePermissionService>();
             if (RoleAuthorityResolution.IsUniversalEmployeePermission(pageKey, permission))

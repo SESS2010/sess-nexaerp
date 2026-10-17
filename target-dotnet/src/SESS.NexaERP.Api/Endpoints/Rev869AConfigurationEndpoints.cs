@@ -21,6 +21,10 @@ public static partial class Rev869AConfigurationEndpoints
         group.MapGet("/policies", async (NexaErpDbContext db, CancellationToken ct) => Results.Ok(await db.OrganizationPolicies.AsNoTracking().OrderBy(x => x.OrganizationId).ThenBy(x => x.PolicyCode).ToListAsync(ct)))
             .RequirePagePermission("security.operational-scopes", PagePermissionActions.View);
         group.MapPost("/employee-identities", CreateIdentity).RequirePagePermission("security.employee-identities", PagePermissionActions.Create);
+        group.MapGet("/employee-onboarding/primary-departments", ReadOnboardingPrimaryDepartment)
+            .RequirePagePermission("security.employee-identities", PagePermissionActions.View);
+        group.MapPost("/employee-onboarding/primary-department", EnsureOnboardingPrimaryDepartment)
+            .RequirePagePermission("security.employee-identities", PagePermissionActions.Create);
         group.MapPost("/employee-identities/{identityId:guid}/revoke", RevokeIdentity).RequirePagePermission("security.employee-identities", PagePermissionActions.Deactivate);
         group.MapGet("/employee-identities", ListEmployeeIdentities).RequirePagePermission("security.employee-identities", PagePermissionActions.View);
         group.MapPost("/operational-scopes", CreateScope).RequirePagePermission("security.operational-scopes", PagePermissionActions.Create);
@@ -56,7 +60,9 @@ public static partial class Rev869AConfigurationEndpoints
 
     private static async Task<IResult> CreateIdentityCore(CreateEmployeeIdentityMappingRequest request, NexaErpDbContext db, ICurrentUser user, IAuditWriter audit, CancellationToken ct)
     {
-        if (!string.Equals(request.IdentityType, IdentityTypes.Human, StringComparison.OrdinalIgnoreCase)) return Results.BadRequest(new { message = "REV869A creates employee-linked HUMAN identities only; shared human logins are prohibited." });
+        var requestedType = request.IdentityType?.Trim().ToUpperInvariant() ?? string.Empty;
+        if (requestedType != IdentityTypes.Human && requestedType != AccountsBackupIdentityPolicy.MappingType)
+            return Results.BadRequest(new { message = "Only individual HUMAN identities or the named accounts-backup HUMAN profile are supported." });
         if (string.IsNullOrWhiteSpace(request.Issuer) || string.IsNullOrWhiteSpace(request.Subject) || request.EffectiveTo < request.EffectiveFrom) return Results.BadRequest(new { message = "Issuer, subject and a valid effective range are required." });
         var employeeCode = MasterEndpointHelpers.NormalizeCode(request.EmployeeCode);
         var employee = await db.Employees.SingleOrDefaultAsync(x => x.EmployeeCode == employeeCode, ct);
@@ -70,12 +76,25 @@ public static partial class Rev869AConfigurationEndpoints
         if (!hasCompanyAssignment) return Results.Conflict(new { message = "Identity requires an active employee assignment in the selected company." });
         var issuer = EmployeeIdentityMapping.NormalizeIssuer(request.Issuer);
         var subject = EmployeeIdentityMapping.NormalizeSubject(request.Subject);
-        if (await db.EmployeeIdentityMappings.AnyAsync(x => x.CompanyId == company.Id && x.IsActive && ((x.Issuer == issuer && x.Subject == subject) || (x.OrganizationId == organization && x.EmployeeId == employee.Id && x.IdentityType == IdentityTypes.Human)), ct)) return Results.Conflict(new { message = "Active issuer/subject or employee identity mapping already exists in this company." });
+        if (AccountsBackupIdentityPolicy.IsBackup(requestedType))
+        {
+            _ = user.RequireRole("role-administration", "IT_MANAGER", "TECHNICAL_DIRECTOR", "MANAGING_DIRECTOR");
+            var date = request.EffectiveFrom;
+            var trusted = await db.EmployeeIdentityMappings.AnyAsync(m => m.CompanyId == company.Id && m.Issuer == issuer &&
+                m.IdentityType == IdentityTypes.Human && m.IsActive && m.EffectiveFrom <= date && (!m.EffectiveTo.HasValue || m.EffectiveTo >= date) &&
+                db.EmployeeRoleAssignments.Any(a => a.EmployeeId == m.EmployeeId && a.CompanyId == company.Id && a.Role != null &&
+                    (a.Role.Code == "TECHNICAL_DIRECTOR" || a.Role.Code == "MANAGING_DIRECTOR") && a.Role.IsActive &&
+                    (a.ApprovalStatus == "Approved" || a.ApprovalStatus == "SeedApproved") && a.EffectiveFrom <= date && (!a.EffectiveTo.HasValue || a.EffectiveTo >= date)), ct);
+            if (!AccountsBackupIdentityPolicy.IsValidMapping(employee.EmployeeCode,requestedType,trusted))
+                return Results.Conflict(new { message = "Accounts backup is limited to SESS-41 using the established individual approvers issuer." });
+            if (employee.Id == user.EmployeeId) return Results.Forbid();
+        }
+        if (await db.EmployeeIdentityMappings.AnyAsync(x => x.CompanyId == company.Id && x.IsActive && ((x.Issuer == issuer && x.Subject == subject) || (x.OrganizationId == organization && x.EmployeeId == employee.Id && x.IdentityType == requestedType)), ct)) return Results.Conflict(new { message = "Active issuer/subject or employee identity mapping already exists in this company." });
         if (await db.EmployeeIdentityMappings.AnyAsync(x => x.Issuer == issuer && x.Subject == subject && x.EmployeeId != employee.Id, ct))
             return Results.Conflict(new { message = "This issuer and subject already identify a different employee." });
-        var entity = new EmployeeIdentityMapping { CompanyId = company.Id, OrganizationId = organization, Issuer = issuer, Subject = subject, EmployeeId = employee.Id, IdentityType = IdentityTypes.Human, EffectiveFrom = request.EffectiveFrom, EffectiveTo = request.EffectiveTo, CreatedBy = user.LoginId };
+        var entity = new EmployeeIdentityMapping { CompanyId = company.Id, OrganizationId = organization, Issuer = issuer, Subject = subject, EmployeeId = employee.Id, IdentityType = requestedType, EffectiveFrom = request.EffectiveFrom, EffectiveTo = request.EffectiveTo, CreatedBy = user.LoginId };
         db.EmployeeIdentityMappings.Add(entity);
-        AddHistory(db, entity.OrganizationId, nameof(EmployeeIdentityMapping), entity.Id, "Create", null, new { entity.Issuer, subjectHash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(entity.Subject))), employee.EmployeeCode, entity.EffectiveFrom, entity.EffectiveTo }, request.Remarks, user, company.Id);
+        AddHistory(db, entity.OrganizationId, nameof(EmployeeIdentityMapping), entity.Id, "Create", null, new { entity.IdentityType, entity.Issuer, subjectHash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(entity.Subject))), employee.EmployeeCode, entity.EffectiveFrom, entity.EffectiveTo }, request.Remarks, user, company.Id);
         await db.SaveChangesAsync(ct);
         await audit.WriteAsync("Security", "CreateIdentityMapping", nameof(EmployeeIdentityMapping), entity.Id.ToString(), null, new { entity.OrganizationId, entity.Issuer, employee.EmployeeCode }, ct);
         return Results.Created($"/api/v1/rev869a/configuration/employee-identities/{entity.Id}", new { entity.Id });
@@ -182,7 +201,7 @@ public static partial class Rev869AConfigurationEndpoints
             return Results.NotFound();
         if (string.IsNullOrWhiteSpace(request.Remarks))
             return Results.BadRequest(new { message = "Qualification creation remarks are required." });
-        var scope = await scopes.AuthorizeAnyAsync(user.EmployeeId.Value, user.RoleCode, organization, DateOnly.FromDateTime(DateTime.UtcNow), ct);
+        var scope = await scopes.AuthorizeAnyAsync(user.EmployeeId.Value, user.RoleCode, organization, db.BusinessDate, ct);
         if (!scope.Allowed)
         {
             await audit.WriteAsync("Security", "Denied", nameof(VendorQualification), organization, null, new { scope.Reason, user.RoleCode }, ct);
@@ -249,7 +268,7 @@ public static partial class Rev869AConfigurationEndpoints
             return Results.BadRequest(new { message = "Legacy qualification normalization remarks are required." });
 
         var scope = await scopes.AuthorizeAnyAsync(user.EmployeeId.Value, user.RoleCode, user.OrganizationId,
-            DateOnly.FromDateTime(DateTime.UtcNow), ct);
+            db.BusinessDate, ct);
         if (!scope.Allowed)
         {
             await audit.WriteAsync("Security", "Denied", nameof(VendorQualification), qualificationId.ToString(), null,
@@ -364,7 +383,7 @@ public static partial class Rev869AConfigurationEndpoints
         if (scopeCandidate.Version != request.ExpectedVersion)
             return Results.Conflict(new { message = "Vendor qualification version is stale." });
 
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var today = db.BusinessDate;
         var historicalCreators = await db.EmployeeIdentityMappings.AsNoTracking()
             .Where(x => x.CompanyId == scopeCandidate.CompanyId &&
                         x.OrganizationId == scopeCandidate.OrganizationId &&
@@ -518,7 +537,7 @@ public static partial class Rev869AConfigurationEndpoints
     private static async Task<IResult> ListWarehouseConditionLocations(string? warehouseCode,string? conditionCode,bool? effectiveOnly,NexaErpDbContext db,ICurrentUser user,CancellationToken ct)
     {
         var companyId=await db.Companies.Where(x=>x.Code==user.OrganizationId&&x.IsActive&&x.Status=="ACTIVE").Select(x=>(Guid?)x.Id).SingleOrDefaultAsync(ct);if(!companyId.HasValue)return Results.Forbid();
-        var today=DateOnly.FromDateTime(DateTime.UtcNow);var query=db.WarehouseConditionLocations.AsNoTracking().Include(x=>x.Warehouse).Include(x=>x.RackBin).Where(x=>x.CompanyId==companyId.Value);
+        var today=db.BusinessDate;var query=db.WarehouseConditionLocations.AsNoTracking().Include(x=>x.Warehouse).Include(x=>x.RackBin).Where(x=>x.CompanyId==companyId.Value);
         if(!string.IsNullOrWhiteSpace(warehouseCode)){var code=MasterEndpointHelpers.NormalizeCode(warehouseCode);query=query.Where(x=>x.Warehouse!.WarehouseCode==code);}
         if(!string.IsNullOrWhiteSpace(conditionCode)){var condition=MasterEndpointHelpers.NormalizeCode(conditionCode);query=query.Where(x=>x.ConditionCode==condition);}
         if(effectiveOnly==true)query=query.Where(x=>x.IsActive&&x.EffectiveFrom<=today&&(!x.EffectiveTo.HasValue||x.EffectiveTo.Value>=today));
@@ -578,7 +597,7 @@ public static partial class Rev869AConfigurationEndpoints
     private static async Task<IResult> ListQcPolicies(Guid? itemId,Guid? categoryId,bool? effectiveOnly,NexaErpDbContext db,ICurrentUser user,CancellationToken ct)
     {
         var companyId=await db.Companies.Where(x=>x.Code==user.OrganizationId&&x.IsActive&&x.Status=="ACTIVE").Select(x=>(Guid?)x.Id).SingleOrDefaultAsync(ct);if(!companyId.HasValue)return Results.Forbid();
-        var today=DateOnly.FromDateTime(DateTime.UtcNow);var query=db.QcInspectionPolicies.AsNoTracking().Where(x=>x.CompanyId==companyId.Value);
+        var today=db.BusinessDate;var query=db.QcInspectionPolicies.AsNoTracking().Where(x=>x.CompanyId==companyId.Value);
         if(itemId.HasValue)query=query.Where(x=>x.ItemId==itemId.Value);
         if(categoryId.HasValue)query=query.Where(x=>x.ItemCategoryId==categoryId.Value);
         if(effectiveOnly==true)query=query.Where(x=>x.IsActive&&(x.ApprovalStatus==MasterApprovalStatuses.Approved||x.ApprovalStatus=="APPROVED")&&x.EffectiveFrom<=today&&(!x.EffectiveTo.HasValue||x.EffectiveTo.Value>=today));
