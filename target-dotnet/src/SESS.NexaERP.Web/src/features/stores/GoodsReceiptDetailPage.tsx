@@ -340,8 +340,8 @@ export function GoodsReceiptDetailPage() {
         </table>
       </div>
 
-      <HistoryPanel docType="GRN" documentId={grn.Id} />
-      {grn.Status === 'FINALIZED' && <HistoryPanel docType="QC" documentId={grn.Id} title="QC history" />}
+      <HistoryPanel docType="GRN" documentId={grn.Id} version={grn.Version} />
+      {grn.Status === 'FINALIZED' && <HistoryPanel docType="QC" documentId={grn.Id} title="QC history" version={grn.Version} />}
 
       {editing && grn && (
         <GoodsReceiptFormModal

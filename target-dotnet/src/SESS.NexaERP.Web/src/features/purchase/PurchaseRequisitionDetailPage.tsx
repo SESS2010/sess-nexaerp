@@ -368,7 +368,7 @@ export function PurchaseRequisitionDetailPage() {
       <h2>Status history</h2>
       <HistoryTable rows={statusHistory} empty="No status events, or you lack the audit-history permission." />
 
-      <HistoryPanel docType="PR" documentId={detail.Id} />
+      <HistoryPanel docType="PR" documentId={detail.Id} version={detail.Version} />
 
       {editing && (
         <PurchaseRequisitionFormModal

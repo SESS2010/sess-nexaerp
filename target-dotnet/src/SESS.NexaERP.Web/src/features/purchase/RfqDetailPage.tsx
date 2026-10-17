@@ -384,7 +384,7 @@ export function RfqDetailPage() {
         </>
       )}
 
-      <HistoryPanel docType="RFQ" documentId={rfq.Id} />
+      <HistoryPanel docType="RFQ" documentId={rfq.Id} version={rfq.Version} />
     </div>
   )
 }

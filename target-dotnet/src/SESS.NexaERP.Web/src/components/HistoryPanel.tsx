@@ -19,6 +19,12 @@ interface Props {
   /** The document's own Id; for 'QC' the GRN id. */
   documentId: string
   title?: string
+  /**
+   * Anything that changes when the document changes, normally its Version.
+   * The page reloads the document after an action; a new value here reloads
+   * the history too, so the event just recorded shows without pressing Refresh.
+   */
+  version?: string | number
 }
 
 const STAGE_WORDS: Record<string, string> = {
@@ -131,7 +137,7 @@ const UNAVAILABLE_TEXT: Record<Exclude<HistoryAvailability, 'error'>, string> = 
   'not-deployed': 'History is not available on this server yet.',
 }
 
-export function HistoryPanel({ docType, documentId, title = 'History' }: Props) {
+export function HistoryPanel({ docType, documentId, title = 'History', version }: Props) {
   const [history, setHistory] = useState<TrackingHistory | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<unknown>(null)
@@ -152,7 +158,7 @@ export function HistoryPanel({ docType, documentId, title = 'History' }: Props) 
 
   useEffect(() => {
     void load()
-  }, [load])
+  }, [load, version])
 
   const availability = error ? historyAvailability(error) : null
 

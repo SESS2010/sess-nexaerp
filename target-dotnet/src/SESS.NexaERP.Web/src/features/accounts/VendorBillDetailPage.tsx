@@ -187,7 +187,7 @@ export function VendorBillDetailPage() {
         </div>
       )}
 
-      <HistoryPanel docType="VENDOR_BILL" documentId={bill.Id} />
+      <HistoryPanel docType="VENDOR_BILL" documentId={bill.Id} version={bill.Version} />
 
       <p><Link to="/accounts/vendor-bills">← Back to Vendor Bills</Link></p>
     </div>

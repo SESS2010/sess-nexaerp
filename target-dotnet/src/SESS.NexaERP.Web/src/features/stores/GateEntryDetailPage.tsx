@@ -237,7 +237,7 @@ export function GateEntryDetailPage() {
         </table>
       </div>
 
-      <HistoryPanel docType="GATE_ENTRY" documentId={gate.Id} />
+      <HistoryPanel docType="GATE_ENTRY" documentId={gate.Id} version={gate.Version} />
 
       {editing && (
         <GateEntryFormModal

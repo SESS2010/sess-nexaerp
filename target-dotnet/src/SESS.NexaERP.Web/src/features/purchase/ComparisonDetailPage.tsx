@@ -473,7 +473,7 @@ export function ComparisonDetailPage() {
       </div>
       )}
 
-      <HistoryPanel docType="COMPARISON" documentId={comparison.Id} />
+      <HistoryPanel docType="COMPARISON" documentId={comparison.Id} version={comparison.Version} />
     </div>
   )
 }

@@ -321,7 +321,7 @@ export function MaterialIssueRequestDetailPage() {
         />
       )}
 
-      <HistoryPanel docType="MIR" documentId={mir.Id} />
+      <HistoryPanel docType="MIR" documentId={mir.Id} version={mir.Version} />
 
       <p className="field-hint" style={{ marginTop: 16 }}>
         <a className="row-click" onClick={() => navigate('/stores/material-issue-requests')}>← Back to Material Issue Requests</a>

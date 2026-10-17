@@ -236,7 +236,7 @@ export function QcInspectionPage() {
         </>
       ))}
 
-      {grnId && <HistoryPanel docType="QC" documentId={grnId} title="QC history" />}
+      {grnId && <HistoryPanel docType="QC" documentId={grnId} title="QC history" version={inspection ? `${inspection.RevisionId}|${inspection.Status}` : undefined} />}
     </div>
   )
 }

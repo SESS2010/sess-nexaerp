@@ -405,7 +405,7 @@ export function PurchaseOrderDetailPage() {
         </div>
       )}
 
-      <HistoryPanel docType="PO" documentId={po.Id} />
+      <HistoryPanel docType="PO" documentId={po.Id} version={po.Version} />
     </div>
   )
 }
