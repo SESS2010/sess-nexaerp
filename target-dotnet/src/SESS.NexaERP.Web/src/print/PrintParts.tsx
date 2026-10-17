@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import { SessLogo } from '../components/SessLogo'
+import { addressLines } from './address'
 import type { PrintAddress, PrintCompany, PrintParty } from './types'
 import './print.css'
 
@@ -22,11 +23,7 @@ export function PrintSheet({ footerLabel, children }: { footerLabel: string; chi
   )
 }
 
-/** Address lines; the "city – pin" line only when either is known (API masters give one free-text address). */
-export function addressLines(address: PrintAddress): string[] {
-  const cityPin = [address.city, address.pin].filter(Boolean).join(' – ')
-  return cityPin ? [...address.lines, cityPin] : [...address.lines]
-}
+export { addressLines }
 
 /** 'Tamil Nadu, Code 33'; tolerates a missing name or code, empty when neither is known. */
 export function stateLabel(address: PrintAddress): string {
