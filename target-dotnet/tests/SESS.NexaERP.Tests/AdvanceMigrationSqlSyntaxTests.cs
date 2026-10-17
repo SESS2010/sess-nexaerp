@@ -764,8 +764,22 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                     AND v.key NOT IN ('CanView','CanCreate','CanUpdate','CanSubmit') AND v.value<>'false'::jsonb))) THEN
             RAISE EXCEPTION 'MIR requester must have exactly its four own-portal actions and no other grant';
           END IF;
-          IF (SELECT count(*) FROM advance.company_role_activations)<>106 THEN RAISE EXCEPTION 'Expected 106 company role activations including two CFO activations.'; END IF;
-          IF (SELECT count(*) FROM advance.company_role_activations WHERE "IsEnabled")<>88 THEN RAISE EXCEPTION 'Expected 88 enabled company role activations including two CFO activations.'; END IF;
+          -- Preserve the complete pre-portal activation contract; new role rows are asserted separately, not ignored.
+          IF (SELECT count(*) FROM advance.company_role_activations a JOIN advance.roles r ON r."Id"=a."RoleId"
+              WHERE r."Code" NOT IN('MIR_REQUESTER','MIR_APPROVER'))<>106 THEN
+            RAISE EXCEPTION 'Expected 106 pre-portal company role activations including two CFO activations.'; END IF;
+          IF (SELECT count(*) FROM advance.company_role_activations a JOIN advance.roles r ON r."Id"=a."RoleId"
+              WHERE a."IsEnabled" AND r."Code" NOT IN('MIR_REQUESTER','MIR_APPROVER'))<>88 THEN
+            RAISE EXCEPTION 'Expected 88 enabled pre-portal company role activations including two CFO activations.'; END IF;
+          IF (SELECT count(*) FROM advance.roles WHERE "Code" IN('MIR_REQUESTER','MIR_APPROVER'))<>2
+            OR (SELECT count(*) FROM advance.company_role_activations a JOIN advance.roles r ON r."Id"=a."RoleId"
+                WHERE r."Code" IN('MIR_REQUESTER','MIR_APPROVER'))<>4
+            OR EXISTS(SELECT 1 FROM advance.roles r CROSS JOIN advance.companies c
+                WHERE r."Code" IN('MIR_REQUESTER','MIR_APPROVER') AND c."Code" IN('SESS_PVT_LTD','SESS_PROPRIETORSHIP')
+                  AND NOT EXISTS(SELECT 1 FROM advance.company_role_activations a
+                    WHERE a."RoleId"=r."Id" AND a."CompanyId"=c."Id" AND a."IsEnabled")) THEN
+            RAISE EXCEPTION 'Expected exactly four enabled MIR portal/decision activations, one per new role in each R1 company.';
+          END IF;
           IF (SELECT count(*) FROM advance.role_page_permissions p JOIN advance.roles r ON r."Id"=p."RoleId"
               WHERE r."Code"='CHIEF_FINANCIAL_OFFICER')<>1
            OR (SELECT count(*) FROM advance.role_page_permissions p JOIN advance.roles r ON r."Id"=p."RoleId"
