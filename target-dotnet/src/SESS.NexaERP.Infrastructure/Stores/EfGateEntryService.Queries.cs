@@ -48,10 +48,17 @@ public sealed partial class EfGateEntryService
         var q=Query().Where(x=>x.CompanyId==company.Id);
         if(!string.IsNullOrWhiteSpace(gateEntryNumber))q=q.Where(x=>x.GateEntryNumber==gateEntryNumber.Trim().ToUpperInvariant());
         if(!string.IsNullOrWhiteSpace(poNumber))q=q.Where(x=>x.PurchaseOrder!.PoNumber==poNumber.Trim().ToUpperInvariant()); if(vendorId.HasValue)q=q.Where(x=>x.VendorId==vendorId);
-        if(from.HasValue)q=q.Where(x=>x.ArrivedAt>=from.Value.ToDateTime(TimeOnly.MinValue,DateTimeKind.Utc)); if(to.HasValue)q=q.Where(x=>x.ArrivedAt<to.Value.AddDays(1).ToDateTime(TimeOnly.MinValue,DateTimeKind.Utc));
+        q=FilterArrivalDates(q,from,to);
         if(!string.IsNullOrWhiteSpace(state)){var s=state.Trim().ToUpperInvariant();if(s is not("DRAFT" or "FINALIZED"))throw new StoresValidationException("state must be DRAFT or FINALIZED.");q=q.Where(x=>x.Status==s);}
         var total=await q.CountAsync(ct);var result=await Sort(q,sortBy,sortDirection).Skip((page-1)*pageSize).Take(pageSize).ToListAsync(ct);
         return new(total,page,pageSize,result.Select(Map).ToList());
+    }
+
+    internal static IQueryable<GateEntry> FilterArrivalDates(IQueryable<GateEntry> query, DateOnly? from, DateOnly? to)
+    {
+        if (from.HasValue) { var start = BusinessCalendar.StartOfDate(from.Value); query = query.Where(x => x.ArrivedAt >= start); }
+        if (to.HasValue) { var end = BusinessCalendar.StartOfDate(to.Value.AddDays(1)); query = query.Where(x => x.ArrivedAt < end); }
+        return query;
     }
 
     internal static IQueryable<GateEntry> Sort(IQueryable<GateEntry> query,string? sortBy,string? sortDirection)

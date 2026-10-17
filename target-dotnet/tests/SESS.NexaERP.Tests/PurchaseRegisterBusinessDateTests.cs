@@ -33,6 +33,20 @@ public sealed class PurchaseRegisterBusinessDateTests
         Assert.Equal(instants, Filter(null, null).Select(x => x.CreatedAt));
     }
 
+    [Fact]
+    public void GateEntryArrivalDateFilterUsesTheSameInclusiveExclusiveKolkataBounds()
+    {
+        var start = DateTimeOffset.Parse("2026-10-17T18:30:00Z");
+        var end = DateTimeOffset.Parse("2026-10-18T18:30:00Z");
+        var instants = new[] { start.AddTicks(-1), start, start.AddHours(1), end.AddTicks(-1), end };
+        var rows = instants.Select(value => new SESS.NexaERP.Domain.Stores.GateEntry { ArrivedAt = value }).AsQueryable();
+        var method = typeof(SESS.NexaERP.Infrastructure.Stores.EfGateEntryService)
+            .GetMethod("FilterArrivalDates", BindingFlags.Static | BindingFlags.NonPublic)!;
+        var date = new DateOnly(2026, 10, 18);
+        var result = (IQueryable<SESS.NexaERP.Domain.Stores.GateEntry>)method.Invoke(null, new object?[] { rows, date, date })!;
+        Assert.Equal(instants.Skip(1).Take(3), result.Select(x => x.ArrivedAt));
+    }
+
     [Theory]
     [InlineData("2026-10-18T00:00:00+05:30")]
     [InlineData("2026-10-18T05:29:59+05:30")]
