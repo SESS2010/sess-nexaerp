@@ -19,14 +19,14 @@ public sealed class EmployeeIdentityResolutionMiddleware(RequestDelegate next)
 #if DEBUG
             var developmentEmployeeCode = context.User.FindFirstValue(DevelopmentTokenService.ImpersonatedEmployeeCodeClaim);
             var resolution = context.RequestServices.GetService<DevelopmentTokenService>() is not null && !string.IsNullOrWhiteSpace(developmentEmployeeCode)
-                ? await resolver.ResolveDevelopmentEmployeeAsync(developmentEmployeeCode, organization, DateOnly.FromDateTime(DateTime.UtcNow), context.RequestAborted)
+                ? await resolver.ResolveDevelopmentEmployeeAsync(developmentEmployeeCode, organization, RequestBusinessDate.ForRequest(context), context.RequestAborted)
                 : string.IsNullOrWhiteSpace(issuer) || string.IsNullOrWhiteSpace(subject)
                     ? ResolvedEmployeeIdentity.Failed("Exact OIDC issuer and subject are required.")
-                    : await resolver.ResolveAsync(issuer, subject, organization, DateOnly.FromDateTime(DateTime.UtcNow), context.RequestAborted);
+                    : await resolver.ResolveAsync(issuer, subject, organization, RequestBusinessDate.ForRequest(context), context.RequestAborted);
 #else
             var resolution = string.IsNullOrWhiteSpace(issuer) || string.IsNullOrWhiteSpace(subject)
                 ? ResolvedEmployeeIdentity.Failed("Exact OIDC issuer and subject are required.")
-                : await resolver.ResolveAsync(issuer, subject, organization, DateOnly.FromDateTime(DateTime.UtcNow), context.RequestAborted);
+                : await resolver.ResolveAsync(issuer, subject, organization, RequestBusinessDate.ForRequest(context), context.RequestAborted);
 #endif
             if (resolution.Success &&
                 resolution.RoleCodes.Any(role => role is "TECHNICAL_DIRECTOR" or "MANAGING_DIRECTOR" or "ACCOUNTS_MANAGER" or "CHIEF_FINANCIAL_OFFICER") &&

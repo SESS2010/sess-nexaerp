@@ -47,7 +47,7 @@ public static class PurchaseActorScope
     public static IQueryable<PurchaseRequisition> ReadRequisitions(IQueryable<PurchaseRequisition> query, NexaErpDbContext db, ICurrentUser user)
     {
         var ordinaryIds = SESS.NexaERP.Infrastructure.Purchase.PurchaseRequisitionVisibility.Apply(query, user, db, includeAssignedApprover: false).Select(p => p.Id);
-        var scopes = ActiveScopes(db, user, DateOnly.FromDateTime(DateTime.UtcNow));
+        var scopes = ActiveScopes(db, user, db.BusinessDate);
         var actor = user.EmployeeId;
         var role = user.RoleCode;
         var snapshotActor = SnapshotActor(user);
@@ -63,7 +63,7 @@ public static class PurchaseActorScope
     {
         if (user.RoleCode is not ("STORES_EXECUTIVE" or "STORES_ASSISTANT" or "STORES_MANAGER"))
             return query.Where(_ => false);
-        var scopes = ActiveScopes(db, user, scopeDate ?? DateOnly.FromDateTime(DateTime.UtcNow));
+        var scopes = ActiveScopes(db, user, scopeDate ?? db.BusinessDate);
         var actor = user.EmployeeId;
         return query.Where(p => p.OrganizationId == user.OrganizationId &&
             scopes.Any(s => s.CompanyId == p.CompanyId && (!s.WarehouseId.HasValue || s.WarehouseId == p.DeliveryWarehouseId) &&
@@ -73,7 +73,7 @@ public static class PurchaseActorScope
     // Caller must first validate the immutable snapshot's EXACT next employee/role and SoD.
     public static Task<bool> AllowsAssignedDecisionAsync(NexaErpDbContext db, ICurrentUser user, Guid companyId,
         Guid? warehouseId, Guid? ownerId, CancellationToken ct) =>
-        ActiveScopes(db, user, DateOnly.FromDateTime(DateTime.UtcNow)).AnyAsync(s => s.CompanyId == companyId &&
+        ActiveScopes(db, user, db.BusinessDate).AnyAsync(s => s.CompanyId == companyId &&
             (!s.WarehouseId.HasValue || s.WarehouseId == warehouseId) && !s.RackBinId.HasValue &&
             (!s.OwnRecordsOnly || ownerId == user.EmployeeId), ct);
 }

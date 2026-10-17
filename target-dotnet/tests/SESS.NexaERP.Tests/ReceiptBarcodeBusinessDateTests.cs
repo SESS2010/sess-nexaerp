@@ -61,15 +61,15 @@ public sealed class BarcodeBusinessDateTests
     }
 
     [Fact]
-    public async Task UnmarkedLegacyEndpointsRetainTheirExistingUtcDatePolicy()
+    public async Task UnmarkedEndpointsUseTheSameTrustedKolkataDate()
     {
         var clock = new Clock(DateTimeOffset.Parse("1999-01-01T00:00:00Z"));
         var scope = new Scope(new(1900, 1, 1), null);
         using var services = Services(clock, scope);
-        var before = DateOnly.FromDateTime(DateTime.UtcNow);
+        var expected = new DateOnly(1999, 1, 1);
         await EmployeeScopeEndpointFilter.RequireResolvedEmployeeAndScope(new DefaultEndpointFilterInvocationContext(Context(services, false)), _ => ValueTask.FromResult<object?>(null));
-        Assert.Contains(scope.SeenDate, new[] { before, DateOnly.FromDateTime(DateTime.UtcNow) });
-        Assert.Equal(0, clock.Reads);
+        Assert.Equal(expected, scope.SeenDate);
+        Assert.Equal(1, clock.Reads);
     }
 
     private static ServiceProvider Services(Clock clock, Scope scope) => new ServiceCollection()

@@ -65,7 +65,7 @@ public static partial class PurchaseRequisitionEndpoints
     {
         var organization = string.IsNullOrWhiteSpace(user.OrganizationId) ? request.OrganizationId.Trim() : user.OrganizationId;
         var companyId = await db.Companies.Where(x => x.Code == organization && x.IsActive).Select(x => x.Id).SingleAsync(ct);
-        var pr = new PurchaseRequisition { CompanyId = companyId, OrganizationId = organization, CustomerPurchaseOrderId = request.CustomerPurchaseOrderId, RequestDate = DateOnly.FromDateTime(DateTime.UtcNow), RequiredByDate = request.RequiredByDate, Priority = request.Priority.Trim(), PurposeJustification = request.PurposeJustification.Trim(), CostCentre = Norm(request.CostCentre), ProjectReference = Norm(request.ProjectReference), ServiceReference = Norm(request.ServiceReference), WorkOrderReference = Norm(request.WorkOrderReference), CustomerReference = Norm(request.CustomerReference), CreatedBy = user.LoginId };
+        var pr = new PurchaseRequisition { CompanyId = companyId, OrganizationId = organization, CustomerPurchaseOrderId = request.CustomerPurchaseOrderId, RequestDate = db.BusinessDate, RequiredByDate = request.RequiredByDate, Priority = request.Priority.Trim(), PurposeJustification = request.PurposeJustification.Trim(), CostCentre = Norm(request.CostCentre), ProjectReference = Norm(request.ProjectReference), ServiceReference = Norm(request.ServiceReference), WorkOrderReference = Norm(request.WorkOrderReference), CustomerReference = Norm(request.CustomerReference), CreatedBy = user.LoginId };
         if (creationId.HasValue) pr.Id = creationId.Value;
         pr.RequestingDepartmentId = await db.Departments.Where(x => x.Code == MasterEndpointHelpers.NormalizeCode(request.RequestingDepartmentCode)).Select(x => x.Id).SingleAsync(ct);
         pr.RequesterEmployeeId = await db.Employees.Where(x => x.EmployeeCode == MasterEndpointHelpers.NormalizeCode(request.RequesterEmployeeCode)).Select(x => x.Id).SingleAsync(ct);
@@ -159,7 +159,7 @@ public static partial class PurchaseRequisitionEndpoints
     {
         if (pr.RequestingDepartmentId is null) return new(false, null, null, null, "Requesting department is required for MANAGER approval routing.");
         if (pr.RequesterEmployeeId is null) return new(false, null, null, null, "Requester employee is required for MANAGER approval routing.");
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var today = db.BusinessDate;
         var mappings = await db.DepartmentApprovalMappings.AsNoTracking()
             .Where(x => x.DepartmentId == pr.RequestingDepartmentId.Value && x.ApprovalRouteCode == PurchaseRequisitionApprovalRoutes.Manager && x.IsActive)
             .Where(x => x.EffectiveFrom <= today && (!x.EffectiveTo.HasValue || x.EffectiveTo.Value >= today))
