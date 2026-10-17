@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import { ErrorAlert } from '../../components/ErrorAlert'
 import { useSession } from '../auth/SessionContext'
+import { requesterOnly } from '../employee/portalAccess'
 import { TrackingTiles } from '../tracking/TrackingTiles'
 import { catalogSize, shortcutGroups } from './pageCatalog'
 
@@ -19,7 +20,8 @@ import { catalogSize, shortcutGroups } from './pageCatalog'
 
 export function HomePage() {
   const { me, error, can } = useSession()
-  const groups = shortcutGroups(can, me !== null)
+  const portalOnly = requesterOnly(me?.RoleCodes ?? [])
+  const groups = shortcutGroups(can, me !== null, !portalOnly)
   const shown = groups.reduce((total, group) => total + group.entries.length, 0)
   const total = catalogSize()
 
@@ -40,7 +42,7 @@ export function HomePage() {
 
       <ErrorAlert error={error} fallback="Could not load your session." />
 
-      {me && <TrackingTiles />}
+      {me && !portalOnly && <TrackingTiles />}
 
       <div className="card">
         <p className="page-sub" style={{ marginBottom: 12 }}>

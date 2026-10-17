@@ -9,6 +9,7 @@
 /** Page keys as declared by RequirePagePermission(...) in the API endpoints. */
 export const PAGE_KEYS = {
   employees: 'employees.master',
+  ownMirs: 'employee.my-mirs',
   vendors: 'masters.vendors',
   customers: 'masters.customers',
   items: 'masters.items',
