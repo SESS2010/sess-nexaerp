@@ -3,6 +3,8 @@ using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using SESS.NexaERP.Api.Endpoints;
 using SESS.NexaERP.Application.Common;
 using SESS.NexaERP.Application.Masters;
@@ -18,7 +20,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
     // Everything after AVAILABLE stock, on the same fresh database, by seeded actors under real
     // page permissions and real operational scopes. Until this walk existed, every step below had
     // only ever been proven on databases the development-only trial script had built.
-    private static async Task ProveOperationsAfterAvailable(HttpClient client, DbContextOptions<NexaErpDbContext> options,
+    private static async Task ProveOperationsAfterAvailable(DisposablePostgreSql server, HttpClient client, DbContextOptions<NexaErpDbContext> options,
         TaxWorkflowUser user, IReadOnlyDictionary<string, Guid> employees, Guid companyId,
         SESS.NexaERP.Domain.Inventory.Item item, SESS.NexaERP.Domain.Inventory.Item declared, FreshReceipt receipt, DateOnly today)
     {
@@ -335,7 +337,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         // of the opening layer, the Stores Manager band, and the approval posts the ledgers. A damage
         // write-off of one declared unit needs the Technical Director and Accounts Manager, in any
         // order, by different people. A correction adds two purchased units at a stated value.
-        await ProveStockAdjustments(client, options, user, employees, companyId, item, declared, purchased, today, evidence);
+        await ProveStockAdjustments(server, client, options, user, employees, companyId, item, declared, purchased, today, evidence);
 
         // 6. The ten company reports, each by a seeded viewer.
         Actor("SESS-05", "SERVICE_ENGINEER", "SERVICE_ENGINEER", "TECHNICAL_SUPPORT_MANAGER");
@@ -377,7 +379,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         }, new JsonSerializerOptions { WriteIndented = true }));
     }
 
-    private static async Task ProveStockAdjustments(HttpClient client, DbContextOptions<NexaErpDbContext> options, TaxWorkflowUser user,
+    private static async Task ProveStockAdjustments(DisposablePostgreSql server, HttpClient client, DbContextOptions<NexaErpDbContext> options, TaxWorkflowUser user,
         IReadOnlyDictionary<string, Guid> employees, Guid companyId, SESS.NexaERP.Domain.Inventory.Item item,
         SESS.NexaERP.Domain.Inventory.Item declared, SESS.NexaERP.Domain.Inventory.Item purchased, DateOnly today, Dictionary<string, object?> evidence)
     {
@@ -488,6 +490,23 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Assert.Equal("ADJUSTMENT_STATED", layer.CostBasis); Assert.Equal(95m, layer.UnitCost); Assert.Equal(190m, layer.LayerValue);
         var addition = await Query(options, db => db.StockMovements.AsNoTracking().SingleAsync(x => x.CompanyId == companyId && x.StockAdjustmentLineId == correction.Lines.Single().Id));
         Assert.Equal("RECEIPT_IN", addition.MovementLeg); Assert.Equal(correction.Lines.Single().Id, addition.OriginStockAdjustmentLineId);
+        var adjustmentStart = BusinessCalendar.StartOfDate(today);
+        Assert.Equal(adjustmentStart, layer.ReceivedAt);
+        Assert.NotNull(addition.CustodyAssignmentId);
+        Assert.Equal(adjustmentStart, await Query(options, db => db.InventoryCustodyAssignments
+            .Where(c => c.Id == addition.CustodyAssignmentId).Select(c => c.EffectiveFrom).SingleAsync()));
+        foreach (var offset in new[] { TimeSpan.Zero, TimeSpan.FromHours(3),
+                     new TimeSpan(5, 29, 59), new TimeSpan(5, 30, 0), new TimeSpan(23, 59, 59) })
+            Assert.True(layer.ReceivedAt < adjustmentStart.Add(offset).AddTicks(10));
+        using (var schema = new NexaErpDbContext(options))
+        {
+            const string adjustmentInstants = "20261018031500_KolkataStockAdjustmentInstants";
+            var chain = schema.Database.GetMigrations().ToArray();
+            server.AssertRejected("adjustment-ist-retained-down.sql", schema.GetService<IMigrator>()
+                .GenerateScript(adjustmentInstants, chain[Array.IndexOf(chain, adjustmentInstants) - 1]),
+                "refuses retained stock-adjustment date evidence");
+        }
+        Assert.Equal("POSTED", await Query(options, db => db.StockAdjustments.Where(a => a.Id == correction.Id).Select(a => a.Status).SingleAsync()));
         // The stated layer is visible to FIFO valuation and the roll-forward through the adjustment number.
         Actor("SESS-14", "ACCOUNTS_MANAGER");
         var valuation = await Get<CompanyReportPage>(client, WitnessReportPath("/api/v1/reports/fifo-valuation?mode=details&pageSize=1000"));

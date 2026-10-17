@@ -158,12 +158,27 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         {
             var layer = await db.FifoInventoryCostLayers.SingleAsync(l => l.CompanyId == company);
             Assert.Equal(25m, layer.UnitCost);
+            // Both prospective opening instants start at the Kolkata business-day boundary.
+            var businessStart = BusinessCalendar.StartOfDate(posted.PeriodEnd);
+            Assert.Equal(businessStart, layer.ReceivedAt);
+            var custodyId = await db.StockMovements.Where(m => m.OpeningStockLineId == layer.OpeningStockLineId)
+                .Select(m => m.CustodyAssignmentId).SingleAsync();
+            Assert.NotNull(custodyId);
+            Assert.Equal(businessStart, (await db.InventoryCustodyAssignments.SingleAsync(c => c.Id == custodyId)).EffectiveFrom);
+            // A later receipt must follow opening, even in the UTC/IST gap, independent of wall clock.
+            foreach (var offset in new[] { TimeSpan.Zero, TimeSpan.FromHours(3),
+                         new TimeSpan(5, 29, 59), new TimeSpan(5, 30, 0), new TimeSpan(23, 59, 59) })
+                Assert.True(layer.ReceivedAt < businessStart.Add(offset).AddTicks(10));
             var mapping = await db.EmployeeIdentityMappings.SingleAsync(m => m.CompanyId == company && m.EmployeeId == employees["SESS-02"] && m.IsActive);
             mapping.IsActive = false; mapping.EffectiveTo = db.BusinessDate; mapping.Version++;
             mapping.UpdatedAt = DateTimeOffset.UtcNow; mapping.UpdatedBy = "INDEPENDENT_MD_IDENTITY_REFUSAL_WITNESS";
             await db.SaveChangesAsync();
         }
         await Refused(md.Client, body, HttpStatusCode.Forbidden); // An old successful key cannot bypass an inactive identity.
+        const string openingInstantMigration = "20261018030000_KolkataOpeningStockInstants";
+        server.AssertRejected("opening-ist-retained-down.sql",
+            migrator.GenerateScript(openingInstantMigration, migrations[Array.IndexOf(migrations, openingInstantMigration) - 1]),
+            "refuses retained opening-stock date evidence");
         server.AssertRejected("md-review-retained-down.sql",
             migrator.GenerateScript("20261017150000_IndependentMdOpeningValueReview", "20261017140000_MirIndependentDecisionAuthority"),
             "refuses retained valuation evidence");

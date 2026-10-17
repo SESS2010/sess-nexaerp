@@ -171,10 +171,10 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Assert.Equal(1670m, await evidence.FifoInventoryCostLayers.Where(x => x.CompanyId == companyId).SumAsync(x => x.LayerValue));
         // FIFO dates opening layers from the ceremony period end, never from the declared purchase date.
         Assert.All(await evidence.FifoInventoryCostLayers.Where(x => x.CompanyId == companyId).ToListAsync(),
-            x => Assert.Equal(today.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc), x.ReceivedAt.UtcDateTime));
+            x => Assert.Equal(BusinessCalendar.StartOfDate(today).UtcDateTime, x.ReceivedAt.UtcDateTime));
         var receipt = await ProveFreshCompanyReceipt(client, options, user, assignments, employees, companyId, item, purchased, locations["AVAILABLE"], today);
         await ProveItemMasterAuthority(server, client, options, user, employees, item);
-        await ProveOperationsAfterAvailable(client, options, user, employees, companyId, item, declared, receipt, today);
+        await ProveOperationsAfterAvailable(server, client, options, user, employees, companyId, item, declared, receipt, today);
         // The merge trigger rewrite refuses rollback once Technical Director merge evidence exists.
         const string mergeAuthority = "20260920140000_ItemMergeDirectorAuthority";
         server.AssertRejected("item-merge-authority-refuse-down.sql", "SET SESSION AUTHORIZATION nexa_erp_migration; SET ROLE nexa_erp_owner;\n"
