@@ -135,10 +135,28 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 Assert.Equal(1,await db.EmployeeIdentityMappings.CountAsync(m=>m.CompanyId==company.Id&&m.EmployeeId==karthick.Id&&m.IdentityType==IdentityTypes.Human));
             }
         }
-        Assert.ThrowsAny<Exception>(()=>server.Execute("accounts-identity-retained-down-refused.sql",down));
+        var retained=Assert.ThrowsAny<Exception>(()=>server.Execute("accounts-identity-retained-down-refused.sql",down));
+        Assert.Contains("Accounts identity rollback refuses retained",retained.Message);
         server.Execute("accounts-identity-fixture-revoke.sql","""
-            UPDATE advance.employee_identity_mappings SET "IsActive"=false WHERE "IdentityType"='HUMAN_ACCT_BACKUP';
+            UPDATE advance.employee_identity_mappings SET "IsActive"=false,
+              "EffectiveTo"=advance.current_business_date(),"UpdatedAt"=clock_timestamp(),
+              "UpdatedBy"='ACCOUNTS_IDENTITY_FIXTURE_CLOSE',"Version"="Version"+1
+              WHERE "IdentityType"='HUMAN_ACCT_BACKUP';
+            DO $assert$ BEGIN
+              IF (SELECT count(*) FROM advance.employee_identity_mappings WHERE "IdentityType"='HUMAN_ACCT_BACKUP'
+                  AND NOT "IsActive" AND "EffectiveTo" IS NOT NULL)<>2 THEN
+                RAISE EXCEPTION 'Both company identities must remain as closed history.';
+              END IF;
+            END $assert$;
             """);
-        Assert.ThrowsAny<Exception>(()=>server.Execute("accounts-identity-revoked-down-refused.sql",down));
+        var revoked=Assert.ThrowsAny<Exception>(()=>server.Execute("accounts-identity-revoked-down-refused.sql",down));
+        Assert.Contains("Accounts identity rollback refuses retained",revoked.Message);
+        server.Execute("accounts-identity-history-still-retained.sql","""
+            DO $assert$ BEGIN
+              IF (SELECT count(*) FROM advance.employee_identity_mappings WHERE "IdentityType"='HUMAN_ACCT_BACKUP')<>2 THEN
+                RAISE EXCEPTION 'Refused Down must preserve both retained identity rows.';
+              END IF;
+            END $assert$;
+            """);
     }
 }
