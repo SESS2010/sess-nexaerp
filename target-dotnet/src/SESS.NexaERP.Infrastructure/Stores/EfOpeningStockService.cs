@@ -151,7 +151,14 @@ public sealed class EfOpeningStockService(
         if (request.IndependentMdReview)
         {
             var actor = Actor();
-            var isMd = await db.Employees.AsNoTracking().AnyAsync(e => e.Id == actor && e.EmployeeCode == "SESS-02", ct);
+            // Re-resolve current authority before opening an idempotent command: a stale
+            // request principal must not replay after its mapping or assignment is revoked.
+            var identity = await new SESS.NexaERP.Infrastructure.Identity.EfEmployeeIdentityResolver(db)
+                .ResolveAsync(user.IdentityIssuer ?? "", user.IdentitySubject ?? "", Organization(), db.BusinessDate, ct);
+            var isMd = identity.Success && identity.EmployeeId == actor && identity.EmployeeCode == "SESS-02"
+                && identity.OrganizationId == company.Code
+                && (identity.EffectiveRoleAssignments?.Any(a => a.AssignmentId == user.ResolvedRoleAssignmentId
+                    && a.RoleCode == "MANAGING_DIRECTOR" && a.AssignmentType is "FULL" or "TEMPORARY") ?? false);
             var countedByKarthick = await db.OpeningStocks.AsNoTracking().AnyAsync(o => o.Id == id && o.CompanyId == company.Id
                 && o.CountedByEmployee != null && o.CountedByEmployee.EmployeeCode == "SESS-41", ct);
             if (!isMd || !countedByKarthick)
