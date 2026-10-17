@@ -1069,6 +1069,13 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 new Rev869BApprovalActionRequest("Level 2 comparison approval", comparison.Version, $"{band.Code}-comparison-approve-2"));
         }
         Assert.Equal(Rev869BStatuses.Approved, comparison.Status);
+        if (band.Level2EmployeeId.HasValue)
+        {
+            var timeline = await Get<SESS.NexaERP.Application.Tracking.TrackingHistory>(client, $"/api/v1/tracking/COMPARISON/{comparison.Id}/history");
+            Assert.Equal(comparison.Id, timeline.DocumentId);
+            Assert.Contains(timeline.Events, e => e.Action == "Approve");
+            if (scopeAlignmentWitness) await ProveTrackingActorRefusals(options, user, "COMPARISON", comparison.Id, tdId, mdId);
+        }
         if (scopeAlignmentWitness && band.Level2EmployeeId.HasValue)
             Assert.Equal(comparison.Id, (await Get<JsonElement>(client, $"/api/v1/purchase/comparisons/{comparison.Number}")).GetProperty("Id").GetGuid());
         user.Set(purchaseId, "SESS-15", Rev869ARoleCodes.PurchaseManager,
@@ -1107,6 +1114,13 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 new Rev869BPoApprovalActionRequest("Level 2 PO approval", po.Version, null, $"{band.Code}-po-approve-2"));
         }
         Assert.Equal(Rev869BStatuses.Approved, po.Status);
+        if (band.Level2EmployeeId.HasValue)
+        {
+            var timeline = await Get<SESS.NexaERP.Application.Tracking.TrackingHistory>(client, $"/api/v1/tracking/PO/{po.Id}/history");
+            Assert.Equal(po.Id, timeline.DocumentId);
+            Assert.Contains(timeline.Events, e => e.Action == "Approve");
+            if (scopeAlignmentWitness) await ProveTrackingActorRefusals(options, user, "PO", po.Id, tdId, mdId);
+        }
         if (scopeAlignmentWitness && band.Level2EmployeeId.HasValue)
         {
             Assert.Equal(po.Id, (await Get<JsonElement>(client, $"/api/v1/purchase/purchase-orders/{po.Number}")).GetProperty("Id").GetGuid());
