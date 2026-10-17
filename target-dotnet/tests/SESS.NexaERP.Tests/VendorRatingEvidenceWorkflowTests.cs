@@ -1,6 +1,9 @@
 using System.Net;
 using System.Net.Http.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
+using SESS.NexaERP.Infrastructure.Reporting;
 using SESS.NexaERP.Application.Common;
 using SESS.NexaERP.Application.Stores;
 using SESS.NexaERP.Infrastructure.Persistence;
@@ -22,12 +25,23 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 var subjects = await db.EmployeeIdentityMappings.Where(x => x.CompanyId == Guid.Parse("70000000-0000-0000-0000-000000000001") && x.IsActive)
                     .ToDictionaryAsync(x => x.EmployeeId, x => x.Subject);
                 actor.Set(context.FirstOperatorId, subjects[context.FirstOperatorId], "STORES_EXECUTIVE");
-                await using var host = await PurchaseFlowHost.StartAsync(context.RuntimeConnection, actor, true, true);
+                await using var host = await PurchaseFlowHost.StartAsync(context.RuntimeConnection, actor, true, true,
+                    captureRequest: (request, _) =>
+                    {
+                        // Stale configuration must not override the mandated R1 business calendar.
+                        var calendar = request.RequestServices.GetRequiredService<IOptions<ReportCalendarOptions>>().Value;
+                        calendar.DefaultTimeZone = "UTC";
+                        calendar.CompanyTimeZones["SESS_PVT_LTD"] = "UTC";
+                        return () => { };
+                    });
                 var grn = await Post<GoodsReceiptResult>(host.Client, $"/api/v1/stores/goods-receipts/{context.Draft.Id}/finalize",
                     new FinalizeGoodsReceiptRequest(context.Draft.Version, context.FirstKey));
                 var qc = await db.Employees.SingleAsync(x => x.EmployeeCode == "SESS-33");
                 actor.Set(qc.Id, subjects[qc.Id], "QC_MANAGER");
                 var evidence = await Get<VendorRatingReceiptEvidence>(host.Client, $"/api/v1/quality/vendor-rating-evidence/{grn.Id}");
+                Assert.Equal("Asia/Kolkata", evidence.TimeZone);
+                var retainedReceipt = await db.GoodsReceipts.AsNoTracking().SingleAsync(x => x.Id == grn.Id);
+                Assert.Equal(BusinessCalendar.DateAt(retainedReceipt.ReceivedAt), evidence.ReceivedDate);
                 Assert.All(evidence.Lines, line => {
                     Assert.Null(line.QualityPoints);
                     Assert.All(line.Lots, lot => { Assert.Equal("QC_NOT_RECORDED", lot.Status); Assert.Null(lot.QualityPoints); });
