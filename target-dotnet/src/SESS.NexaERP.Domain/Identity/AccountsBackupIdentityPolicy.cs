@@ -17,6 +17,7 @@ public static class AccountsBackupIdentityPolicy
         return (page,action) switch
         {
             ("purchase.requisitions","verify" or "approve" or "reject" or "request-revision" or "request-clarification") => true,
+            ("purchase.requisition-approvals","approve" or "reject" or "request-revision") => true,
             ("purchase.commercial-comparisons","approve" or "reject" or "request-revision" or "request-clarification") => true,
             ("purchase.po","approve" or "reject" or "request-revision" or "request-clarification") => true,
             ("masters.vendors","verify" or "reject") => true,

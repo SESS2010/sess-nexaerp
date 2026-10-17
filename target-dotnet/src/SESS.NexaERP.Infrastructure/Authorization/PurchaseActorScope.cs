@@ -54,11 +54,20 @@ public static class PurchaseActorScope
         var snapshotActor = SnapshotActor(user);
         var accountsBackup=AccountsBackupDecisionContext.CanUse(user);
         var accountsCounterpart=AccountsBackupDecisionContext.CounterpartSnapshot;
+        var today = db.BusinessDate;
+        var departmentMappings = db.DepartmentApprovalMappings.Where(m => m.IsActive &&
+            m.ApprovalRouteCode == PurchaseRequisitionApprovalRoutes.Manager && m.EffectiveFrom <= today &&
+            (!m.EffectiveTo.HasValue || m.EffectiveTo.Value >= today));
         return query.Where(p => ordinaryIds.Contains(p.Id) || p.OrganizationId == user.OrganizationId &&
             scopes.Any(s => s.CompanyId == p.CompanyId && (!s.WarehouseId.HasValue || s.WarehouseId == p.DeliveryWarehouseId) &&
                 !s.RackBinId.HasValue && (!s.OwnRecordsOnly || p.RequesterEmployeeId == actor)) &&
             (p.ApprovalCycle > 0 && EF.Functions.JsonContains(p.ApprovalWorkflowSnapshotJson, snapshotActor) ||
              accountsBackup && EF.Functions.JsonContains(p.ApprovalWorkflowSnapshotJson,accountsCounterpart) ||
+             accountsBackup && p.Status == "Submitted" && p.RequesterEmployeeId != actor && p.CreatorEmployeeId != actor &&
+                 departmentMappings.Count(m => m.CompanyId == p.CompanyId && m.DepartmentId == p.RequestingDepartmentId) == 1 &&
+                 departmentMappings.Any(m => m.CompanyId == p.CompanyId && m.DepartmentId == p.RequestingDepartmentId &&
+                     m.ApproverRoleCode == "ACCOUNTS_MANAGER" && db.Employees.Any(e =>
+                         e.Id == m.PrimaryApproverEmployeeId && e.EmployeeCode == "SESS-14" && e.Status == "Active")) ||
              db.PurchaseRequisitionApprovalHistories.Any(h => h.CompanyId == p.CompanyId && h.PurchaseRequisitionId == p.Id &&
                 h.ResolvedEmployeeId == actor && h.ResolvedRoleCode == role && h.StepNumber > 0)));
     }

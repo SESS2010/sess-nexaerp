@@ -131,6 +131,72 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                     Issuer=approvers,Subject="accounts-subject",IdentityType=AccountsBackupIdentityPolicy.MappingType,EffectiveFrom=date});
                 await db.SaveChangesAsync();
                 await Refuse(karthick.Id,approvers,"second-accounts-subject","23505");
+                var accountsRole = await db.Roles.SingleAsync(r => r.Code == "ACCOUNTS_MANAGER");
+                var assignment = new SESS.NexaERP.Domain.Employees.EmployeeRoleAssignment {
+                    CompanyId = company.Id, EmployeeId = karthick.Id, RoleId = accountsRole.Id,
+                    EffectiveFrom = date, AssignmentType = "FULL", Remarks = "Disposable accounts projection witness"
+                };
+                await using (var setupTx = await db.Database.BeginTransactionAsync()) {
+                    var authority = await db.EmployeeRoleAssignments.Where(a => a.CompanyId == company.Id &&
+                        a.Role!.Code == "TECHNICAL_DIRECTOR" && a.AssignmentType == "FULL" && a.EffectiveTo == null)
+                        .Select(a => a.Id).SingleAsync();
+                    await db.Database.ExecuteSqlInterpolatedAsync($"SELECT set_config('sess.role_authority_assignment_id',{authority.ToString()},true)");
+                    db.EmployeeRoleAssignments.Add(assignment);
+                    await db.SaveChangesAsync();
+                    await setupTx.CommitAsync();
+                }
+                var resolver = new SESS.NexaERP.Infrastructure.Identity.EfEmployeeIdentityResolver(db);
+                var staffIdentity = await resolver.ResolveAsync(staff, "stores-subject", company.Code, date, default);
+                Assert.True(staffIdentity.Success, staffIdentity.Message);
+                Assert.Contains("STORES_MANAGER", staffIdentity.FullAuthorityRoleCodes!);
+                Assert.DoesNotContain("ACCOUNTS_MANAGER", staffIdentity.RoleCodes);
+                Assert.Equal("HUMAN", staffIdentity.IdentityAuthorityType);
+                var accountsIdentity = await resolver.ResolveAsync(approvers, "accounts-subject", company.Code, date, default);
+                Assert.True(accountsIdentity.Success, accountsIdentity.Message);
+                Assert.Equal(new[] { "ACCOUNTS_MANAGER" }, accountsIdentity.RoleCodes);
+                Assert.Equal(new[] { "ACCOUNTS_MANAGER" }, accountsIdentity.FullAuthorityRoleCodes!);
+                Assert.Equal("HUMAN_ACCT_BACKUP", accountsIdentity.IdentityAuthorityType);
+                Assert.Equal(karthick.Id, accountsIdentity.EmployeeId);
+                var commercialUser = new TaxWorkflowUser(karthick.Id, "accounts-subject", "ACCOUNTS_MANAGER");
+                commercialUser.SetOrganization(company.Code);
+                commercialUser.SetAuthorityProfile(AccountsBackupIdentityPolicy.MappingType, "SESS-41");
+                var vendor = new SESS.NexaERP.Domain.Masters.Vendor { Id = Guid.NewGuid(), VendorCode = "ACCOUNTS-GUARD", CreatedBy = "stores-subject" };
+                await Assert.ThrowsAsync<UnauthorizedAccessException>(() => SESS.NexaERP.Infrastructure.Authorization.AccountsVendorCommercialGuard
+                    .RequireIndependentAsync(db, commercialUser, vendor, default));
+                vendor.CreatedBy = "SESS-41";
+                await Assert.ThrowsAsync<UnauthorizedAccessException>(() => SESS.NexaERP.Infrastructure.Authorization.AccountsVendorCommercialGuard
+                    .RequireIndependentAsync(db, commercialUser, vendor, default));
+                vendor.CreatedBy = "independent-purchase-maker";
+                await SESS.NexaERP.Infrastructure.Authorization.AccountsVendorCommercialGuard.RequireIndependentAsync(db, commercialUser, vendor, default);
+                db.MasterApprovalHistories.Add(new SESS.NexaERP.Domain.Masters.MasterApprovalHistory {
+                    MasterType = "Vendor", MasterId = vendor.Id, MasterCode = vendor.VendorCode, Action = "ControlledDetailsChanged",
+                    FromStatus = "Approved", ToStatus = "PendingApproval", ActorLoginId = "stores-subject", ActorRoleCode = "STORES_MANAGER",
+                    Remarks = "Disposable retained maker evidence", CorrelationId = Guid.NewGuid().ToString("N")
+                });
+                await db.SaveChangesAsync();
+                var retainedMakerRows = await db.MasterApprovalHistories.CountAsync(h => h.MasterId == vendor.Id);
+                await Assert.ThrowsAsync<UnauthorizedAccessException>(() => SESS.NexaERP.Infrastructure.Authorization.AccountsVendorCommercialGuard
+                    .RequireIndependentAsync(db, commercialUser, vendor, default));
+                Assert.Equal(retainedMakerRows, await db.MasterApprovalHistories.CountAsync(h => h.MasterId == vendor.Id));
+                Assert.DoesNotContain("STORES_MANAGER", accountsIdentity.RoleCodes);
+                Assert.False((await resolver.ResolveAsync(staff, "accounts-subject", company.Code, date, default)).Success);
+                Assert.False((await resolver.ResolveAsync(approvers, "stores-subject", company.Code, date, default)).Success);
+                Assert.False((await resolver.ResolveAsync(approvers, "accounts-subject", company.Code, date.AddDays(-1), default)).Success);
+                await using (var expired = await db.Database.BeginTransactionAsync()) {
+                    var authority = await db.EmployeeRoleAssignments.Where(a => a.CompanyId == company.Id &&
+                        a.Role!.Code == "TECHNICAL_DIRECTOR" && a.AssignmentType == "FULL" && a.EffectiveTo == null)
+                        .Select(a => a.Id).SingleAsync();
+                    await db.Database.ExecuteSqlInterpolatedAsync($"SELECT set_config('sess.role_authority_assignment_id',{authority.ToString()},true)");
+                    await db.EmployeeRoleAssignments.Where(a => a.Id == assignment.Id).ExecuteUpdateAsync(a => a
+                        .SetProperty(x => x.EffectiveTo, date).SetProperty(x => x.EndReason, "Disposable expiration witness")
+                        .SetProperty(x => x.EndedAt, DateTimeOffset.UtcNow).SetProperty(x => x.EndedBy, "ACCOUNTS_PROJECTION_TEST")
+                        .SetProperty(x => x.UpdatedAt, DateTimeOffset.UtcNow).SetProperty(x => x.UpdatedBy, "ACCOUNTS_PROJECTION_TEST")
+                        .SetProperty(x => x.Version, x => x.Version + 1));
+                    Assert.False((await resolver.ResolveAsync(approvers, "accounts-subject", company.Code, date.AddDays(1), default)).Success);
+                    Assert.True((await resolver.ResolveAsync(staff, "stores-subject", company.Code, date.AddDays(1), default)).Success);
+                    await expired.RollbackAsync();
+                    db.ChangeTracker.Clear();
+                }
                 Assert.Equal(2,await db.EmployeeIdentityMappings.CountAsync(m=>m.CompanyId==company.Id&&m.EmployeeId==karthick.Id&&m.IsActive));
                 Assert.Equal(1,await db.EmployeeIdentityMappings.CountAsync(m=>m.CompanyId==company.Id&&m.EmployeeId==karthick.Id&&m.IdentityType==IdentityTypes.Human));
             }

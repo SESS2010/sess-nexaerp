@@ -55,6 +55,7 @@ public sealed class EfOpeningStockService(
     private async Task<OpeningStockView> RecordCountCoreAsync(
         CreateOpeningStockFromImportRequest request, CancellationToken ct)
     {
+        user.RequireAccountsBackupPageAction("stores.opening-stock", "create");
         var role = user.RequireRole("create", "STORES_MANAGER");
         ValidatePeriod(request.PeriodStart, request.PeriodEnd);
         var company = await CompanyAsync(ct);
@@ -98,6 +99,7 @@ public sealed class EfOpeningStockService(
 
     private async Task<OpeningStockView> WithdrawCoreAsync(Guid id, OpeningStockTransitionRequest request, CancellationToken ct)
     {
+        user.RequireAccountsBackupPageAction("stores.opening-stock", "create");
         if (request.IndependentMdReview) throw new StoresValidationException("Independent MD review applies only to the value-review step.");
         var role = user.RequireRole("approve", "STORES_MANAGER", "TECHNICAL_DIRECTOR");
         var company = await CompanyAsync(ct);
@@ -139,6 +141,7 @@ public sealed class EfOpeningStockService(
         Guid id, OpeningStockTransitionRequest request, string operation, string action,
         string from, string to, string requiredRole, CancellationToken ct)
     {
+        user.RequireAccountsBackupPageAction("stores.opening-stock", action == "VALUE" ? "verify" : "approve");
         if (request.IndependentMdReview && action != "VALUE")
             throw new StoresValidationException("Independent MD review applies only to the value-review step.");
         var role = user.RequireRole("approve", request.IndependentMdReview ? "MANAGING_DIRECTOR" : requiredRole);
