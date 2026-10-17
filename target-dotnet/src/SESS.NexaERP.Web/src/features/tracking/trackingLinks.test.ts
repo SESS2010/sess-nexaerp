@@ -6,6 +6,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { PENDING_PAGE_PATH, QC_QUEUE_PATH, trackingRowLink } from './trackingLinks.ts'
+import { queueTilePath } from './trackingQueues.ts'
 import type { TrackingPendingRow } from '../../types/tracking.ts'
 
 const GRN_ID = 'a4e3b2c1-9d8f-4e7a-b6c5-d4e3f2a1b0c9'
@@ -65,4 +66,23 @@ test('QC opens the QC queue, not the GRN detail, although DocumentId is the GRN 
 test('the API Link field is never used, for known or unknown doc types', () => {
   assert.equal(trackingRowLink(row({ DocType: 'GRN', DocumentId: GRN_ID, Link: `/stores/grns/${GRN_ID}` })), `/stores/goods-receipts/${GRN_ID}`)
   assert.equal(trackingRowLink(row({ DocType: 'SOMETHING_NEW', Link: '/somewhere/else' })), PENDING_PAGE_PATH)
+})
+
+test('a pr-stock-check row opens Stock Check for a session that may verify (F17)', () => {
+  const stockRow = row({ DocType: 'PR', Queue: 'pr-stock-check', Number: 'PR/SPVT/26-27/000003' })
+  const verifier = (key: string, action?: string) => key === 'stores.stock-check' && action === 'verify'
+  assert.equal(trackingRowLink(stockRow, verifier), '/stores/stock-check/PR%2FSPVT%2F26-27%2F000003')
+  // Without the verify grant, or without a session check at all, the PR detail stays.
+  assert.equal(trackingRowLink(stockRow, () => false), '/purchase/requisitions/PR%2FSPVT%2F26-27%2F000003')
+  assert.equal(trackingRowLink(stockRow), '/purchase/requisitions/PR%2FSPVT%2F26-27%2F000003')
+  // Other PR queues are unchanged even for a verifier.
+  assert.equal(trackingRowLink(row({ DocType: 'PR', Queue: 'pr-approval', Number: 'PR/SPVT/26-27/000003' }), verifier),
+    '/purchase/requisitions/PR%2FSPVT%2F26-27%2F000003')
+})
+
+test('the stock-check home tile opens Stock Check only for a verifier (F17)', () => {
+  const verifier = (key: string, action?: string) => key === 'stores.stock-check' && action === 'verify'
+  assert.equal(queueTilePath('pr-stock-check', verifier), '/stores/stock-check')
+  assert.equal(queueTilePath('pr-stock-check', () => false), '/tracking/pending?queue=pr-stock-check')
+  assert.equal(queueTilePath('gate-no-grn', verifier), '/tracking/pending?queue=gate-no-grn')
 })

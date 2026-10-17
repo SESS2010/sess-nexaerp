@@ -11,7 +11,8 @@ import { getTrackingSummary, historyAvailability } from '../../api/tracking'
 import type { TrackingSummaryTile } from '../../types/tracking'
 import { ErrorAlert } from '../../components/ErrorAlert'
 import { docTypeWords } from '../../components/HistoryPanel'
-import { groupQueuesByDocType, pendingQueuePath } from './trackingQueues'
+import { useSession } from '../auth/SessionContext'
+import { groupQueuesByDocType, queueTilePath } from './trackingQueues'
 
 type State =
   | { kind: 'loading' }
@@ -20,6 +21,7 @@ type State =
   | { kind: 'ready'; tiles: TrackingSummaryTile[] }
 
 export function TrackingTiles() {
+  const { can } = useSession()
   const [state, setState] = useState<State>({ kind: 'loading' })
 
   useEffect(() => {
@@ -61,7 +63,7 @@ export function TrackingTiles() {
         <div key={group.docType} className="tracking-group">
           <div className="tracking-group-label">{docTypeWords(group.docType)}</div>
           <div className="tracking-tiles">
-            {group.queues.map((tile) => <Tile key={tile.Queue} tile={tile} />)}
+            {group.queues.map((tile) => <Tile key={tile.Queue} tile={tile} to={queueTilePath(tile.Queue, can)} />)}
           </div>
         </div>
       ))}
@@ -69,12 +71,12 @@ export function TrackingTiles() {
   )
 }
 
-function Tile({ tile }: { tile: TrackingSummaryTile }) {
+function Tile({ tile, to }: { tile: TrackingSummaryTile; to: string }) {
   const count = tile.Count ?? 0
   const overdue = tile.OverdueCount ?? 0
   const className = `tracking-tile${count === 0 ? ' tracking-tile-empty' : ''}${overdue > 0 ? ' tracking-tile-overdue' : ''}`
   return (
-    <Link to={pendingQueuePath(tile.Queue)} className={className} title={tile.Title}>
+    <Link to={to} className={className} title={tile.Title}>
       <div className="tracking-tile-title">{tile.Title}</div>
       <div className="tracking-tile-count">{count}</div>
       <div className="tracking-tile-meta">

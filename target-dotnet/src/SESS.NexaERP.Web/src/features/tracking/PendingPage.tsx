@@ -18,6 +18,7 @@ import { formatInstantIst } from '../../print/format'
 import { TRACKING_DOC_TYPE_ORDER, TRACKING_QUEUES, groupQueuesByDocType } from './trackingQueues'
 import type { TrackingQueueInfo } from './trackingQueues'
 import { trackingRowLink } from './trackingLinks'
+import { useSession } from '../auth/SessionContext'
 
 const PAGE_SIZE = 50
 
@@ -63,6 +64,7 @@ function pendingWith(row: TrackingPendingRow): string {
 }
 
 export function PendingPage() {
+  const { can } = useSession()
   const [searchParams, setSearchParams] = useSearchParams()
   const filters = useMemo(() => readFilters(searchParams), [searchParams])
 
@@ -195,7 +197,7 @@ export function PendingPage() {
                   <tr key={`${row.Queue}:${row.DocumentId}`} className={row.IsOverdue ? 'tracking-overdue' : undefined}>
                     <td>
                       <div className="tracking-doc-type">{docTypeWords(row.DocType)}</div>
-                      <Link to={trackingRowLink(row)} className="tracking-doc-number mono">{row.Number}</Link>
+                      <Link to={trackingRowLink(row, can)} className="tracking-doc-number mono">{row.Number}</Link>
                     </td>
                     <td>
                       <StatusBadge value={row.Status} />

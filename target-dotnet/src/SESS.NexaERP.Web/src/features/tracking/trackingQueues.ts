@@ -7,6 +7,8 @@
 // a mock payload: no counts, no dates.
 
 import type { TrackingDocType } from '../../types/tracking'
+import { STOCK_CHECK_PATH, STOCK_CHECK_QUEUE, canVerifyStockCheck } from './trackingLinks.ts'
+import type { Can } from './trackingLinks.ts'
 
 /** Grouping order for tiles and the queue filter: the document flow, PR to bill. */
 export const TRACKING_DOC_TYPE_ORDER: TrackingDocType[] = [
@@ -65,8 +67,18 @@ export function groupQueuesByDocType<T extends { DocType: string }>(queues: T[])
   return [...groups.entries()].map(([docType, list]) => ({ docType, queues: list }))
 }
 
-/** The Pending page filtered to one queue: what a home tile links to. */
+/** The Pending page filtered to one queue. */
 export function pendingQueuePath(queue: string): string {
   const params = new URLSearchParams({ queue })
   return `/tracking/pending?${params.toString()}`
+}
+
+/**
+ * Where a home tile opens: the Pending page filtered to its queue, except the
+ * stock-check tile, which opens the Stock Check screen (the list of PRs
+ * waiting) for a session that may verify stock checks.
+ */
+export function queueTilePath(queue: string, can?: Can): string {
+  if (queue === STOCK_CHECK_QUEUE && canVerifyStockCheck(can)) return STOCK_CHECK_PATH
+  return pendingQueuePath(queue)
 }

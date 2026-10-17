@@ -30,16 +30,35 @@
 // inside the number becomes %2F, which the router keeps as one segment and
 // useParams() decodes back. The raw number is never split into segments and
 // never replaces the UUID.
+//
+// One queue overrides the table: a pr-stock-check row opens the Stock Check
+// screen for that PR (/stores/stock-check/{Number}) when the session may
+// verify stock checks. Stores verifies stock without purchase.requisitions
+// View, so the PR detail route would end on a permission page for them.
 
 import type { TrackingPendingRow } from '../../types/tracking'
+import { PAGE_KEYS } from '../auth/pageKeys.ts'
 
 export const PENDING_PAGE_PATH = '/tracking/pending'
 
 /** The QC queue: where a QC pending row opens (G-14). */
 export const QC_QUEUE_PATH = '/qc/inspections'
 
-export function trackingRowLink(row: TrackingPendingRow): string {
+export const STOCK_CHECK_PATH = '/stores/stock-check'
+export const STOCK_CHECK_QUEUE = 'pr-stock-check'
+
+export type Can = (pageKey: string, action?: string) => boolean
+
+/** Whether the session may work the stock-check queue on its own screen. */
+export function canVerifyStockCheck(can?: Can): boolean {
+  return can?.(PAGE_KEYS.stockCheck, 'verify') ?? false
+}
+
+export function trackingRowLink(row: TrackingPendingRow, can?: Can): string {
   const number = encodeURIComponent(row.Number)
+  if (row.DocType === 'PR' && row.Queue === STOCK_CHECK_QUEUE && canVerifyStockCheck(can)) {
+    return `${STOCK_CHECK_PATH}/${number}`
+  }
   switch (row.DocType) {
     case 'PR':
       return `/purchase/requisitions/${number}`
