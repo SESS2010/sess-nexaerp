@@ -99,7 +99,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 Request("9025") with
                 {
                     GstRate = 12, CgstRate = 6, SgstRate = 6,
-                    EffectiveFrom = DateOnly.FromDateTime(DateTime.UtcNow).AddDays(1),
+                    EffectiveFrom = SESS.NexaERP.Application.Common.BusinessCalendar.DateAt(DateTimeOffset.UtcNow).AddDays(1),
                     SupersedesTaxGstSettingId = approvedId
                 },
                 "tax-supersede-9025", default);
@@ -120,7 +120,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 x.EntityName == nameof(TaxGstSetting) && x.EntityId == approvedId.ToString()));
             var resolved = await new EfTaxGstResolver(verifier).ResolveAsync(
                 new TaxResolutionRequest("SESS_PVT_LTD", TaxJurisdictions.IndiaGst, "9025", "33", "33",
-                    VendorRegistrationType.REGULAR.ToCanonicalValue(), DateOnly.FromDateTime(DateTime.UtcNow).AddDays(1), 100), default);
+                    VendorRegistrationType.REGULAR.ToCanonicalValue(), SESS.NexaERP.Application.Common.BusinessCalendar.DateAt(DateTimeOffset.UtcNow).AddDays(1), 100), default);
             Assert.Equal(successorId, resolved.Id);
             Assert.Equal(12, resolved.GstRate);
             Assert.Equal(InputTaxCreditEligibility.FullyRecoverable, predecessor.ItcEligibility);
@@ -163,7 +163,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
     private static CreateTaxGstSettingRequest Request(string hsn) => new(
         "SESS_PVT_LTD", TaxJurisdictions.IndiaGst, hsn, "33", "33",
         VendorRegistrationType.REGULAR.ToCanonicalValue(), 18, 9, 9, 0, 0,
-        false, false, "INR", 2, DateOnly.FromDateTime(DateTime.UtcNow), null, "Manual GST portal cross-check required");
+        false, false, "INR", 2, SESS.NexaERP.Application.Common.BusinessCalendar.DateAt(DateTimeOffset.UtcNow), null, "Manual GST portal cross-check required");
 
     private sealed class TaxWorkflowUser : ICurrentUser
     {

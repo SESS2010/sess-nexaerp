@@ -51,7 +51,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Assert.Equal(45, vendors.Count(x => x.LegacyApprovalStatus == "Approved"));
         Assert.Equal(44, vendors.Count(x => x.LegacyApprovalStatus == "Pending"));
         Assert.All(vendors, x => { Assert.Equal(MasterApprovalStatuses.Draft, x.ApprovalStatus); Assert.Null(x.GstNumber);
-            Assert.Null(x.ApprovedAt); Assert.False(VendorQualification.IsVendorEligible(x, DateOnly.FromDateTime(DateTime.UtcNow))); });
+            Assert.Null(x.ApprovedAt); Assert.False(VendorQualification.IsVendorEligible(x, SESS.NexaERP.Application.Common.BusinessCalendar.DateAt(DateTimeOffset.UtcNow))); });
         Assert.All(vendors.Where(x => x.LegacyApprovalStatus == "Approved"), x => Assert.Equal(new DateOnly(2026, 9, 29), x.LegacyApprovedDate));
         var vendor = vendors.Single(x => x.VendorCode == "TEST-V-0001");
         Assert.Equal("China", vendor.Country); Assert.Equal("Guangdong", vendor.State);
@@ -69,12 +69,12 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         vendor.VendorStatus = MasterStatuses.Active; vendor.ApprovalStatus = MasterApprovalStatuses.Approved;
         vendor.CommercialVerificationStatus = MasterApprovalStatuses.Approved;
         await db.SaveChangesAsync();
-        Assert.True(VendorQualification.IsVendorEligible(vendor, DateOnly.FromDateTime(DateTime.UtcNow)));
+        Assert.True(VendorQualification.IsVendorEligible(vendor, SESS.NexaERP.Application.Common.BusinessCalendar.DateAt(DateTimeOffset.UtcNow)));
         existing = (await adapter.LoadExistingAsync([vendor.VendorCode], [], default)).ByCode[vendor.VendorCode];
         var pending = existing.MaterialValues.ToDictionary(x => x.Key, x => x.Value); pending["LegacyApprovalStatus"] = "Pending";
         await adapter.UpdateAsync(existing, new(2, pending), existing.Version, default);
         Assert.Equal(MasterApprovalStatuses.PendingApproval, vendor.ApprovalStatus);
-        Assert.False(VendorQualification.IsVendorEligible(vendor, DateOnly.FromDateTime(DateTime.UtcNow)));
+        Assert.False(VendorQualification.IsVendorEligible(vendor, SESS.NexaERP.Application.Common.BusinessCalendar.DateAt(DateTimeOffset.UtcNow)));
         Assert.True(await db.MasterApprovalHistories.AnyAsync(x => x.MasterId == vendor.Id));
         var history = await db.ControlledConfigurationHistories.SingleAsync(x => x.EntityId == vendor.Id);
         Assert.Equal(await db.Companies.Where(x => x.Code == user.OrganizationId).Select(x => x.Id).SingleAsync(), history.CompanyId);
@@ -85,7 +85,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         await db.SaveChangesAsync();
         existing = (await adapter.LoadExistingAsync([vendor.VendorCode], [], default)).ByCode[vendor.VendorCode];
         Assert.True(adapter.IsMateriallyEqual(new(2, existing.MaterialValues), existing));
-        Assert.True(VendorQualification.IsVendorEligible(vendor, DateOnly.FromDateTime(DateTime.UtcNow)));
+        Assert.True(VendorQualification.IsVendorEligible(vendor, SESS.NexaERP.Application.Common.BusinessCalendar.DateAt(DateTimeOffset.UtcNow)));
         // Source provenance must never promote a blacklisted vendor into an approvable lifecycle.
         vendor.VendorStatus = MasterStatuses.Blacklisted; vendor.LegacyApprovalStatus = "Approved";
         await db.SaveChangesAsync();
@@ -93,7 +93,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         pending = existing.MaterialValues.ToDictionary(x => x.Key, x => x.Value); pending["LegacyApprovalStatus"] = "Pending";
         await adapter.UpdateAsync(existing, new(2, pending), existing.Version, default);
         Assert.Equal(MasterStatuses.Blacklisted, vendor.VendorStatus);
-        Assert.False(VendorQualification.IsVendorEligible(vendor, DateOnly.FromDateTime(DateTime.UtcNow)));
+        Assert.False(VendorQualification.IsVendorEligible(vendor, SESS.NexaERP.Application.Common.BusinessCalendar.DateAt(DateTimeOffset.UtcNow)));
         server.AssertRejected("vendor-import-down-refused.sql", down, "refuses to discard imported approval facts");
         server.Execute("vendor-import-test-cleanup.sql", """UPDATE advance.vendors SET "LegacyApprovalStatus"=NULL,"LegacyApprovedDate"=NULL WHERE "VendorCode" LIKE 'TEST-V-%';""");
         server.Execute("vendor-import-final-down.sql", down);

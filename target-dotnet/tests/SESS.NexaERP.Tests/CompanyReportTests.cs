@@ -220,7 +220,7 @@ public sealed class CompanyReportWorkbookTests
     public void CurrentQueueRejectsHistoricalDate()
     {
         Assert.Throws<ReportRequestException>(()=>EfCompanyReportService.Normalize(
-            ReportDefinitions.Find("pending-approvals"),new(ToDate:DateOnly.FromDateTime(DateTime.UtcNow).AddDays(-1))));
+            ReportDefinitions.Find("pending-approvals"),new(ToDate:SESS.NexaERP.Application.Common.BusinessCalendar.DateAt(DateTimeOffset.UtcNow).AddDays(-1))));
     }
 
     [Fact]

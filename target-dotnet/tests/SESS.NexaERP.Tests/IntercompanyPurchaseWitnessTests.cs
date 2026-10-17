@@ -21,7 +21,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
     {
         var seller = MultiCompanyFoundationSeedData.SessProprietorshipId;
         var buyer = MultiCompanyFoundationSeedData.SessPvtLtdId;
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var today = SESS.NexaERP.Application.Common.BusinessCalendar.DateAt(DateTimeOffset.UtcNow);
         var sellerSite = new CompanySite { CompanyId = seller, Code = "IC-PO-SELLER", Name = "Seller witness site", SiteType = "FACTORY", AddressLine1 = "Witness only", City = "Chennai", State = "Tamil Nadu", StateCode = "33", PostalCode = "600001" };
         var buyerSite = new CompanySite { CompanyId = buyer, Code = "IC-PO-BUYER", Name = "Buyer witness site", SiteType = "FACTORY", AddressLine1 = "Witness only", City = "Chennai", State = "Tamil Nadu", StateCode = "33", PostalCode = "600002" };
         var sellerStore = new Warehouse { CompanyId = seller, WarehouseCode = "IC-PO-SELLER", Name = "Seller witness warehouse", WarehouseType = "STORES", Status = MasterStatuses.Active, ApprovalStatus = MasterApprovalStatuses.Approved };

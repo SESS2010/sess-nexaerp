@@ -57,7 +57,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Assert.NotEmpty(scopes);
         var otherWarehouse = await db.Warehouses.Where(w => w.CompanyId == scopes[0].CompanyId &&
             w.WarehouseCode != pr.DeliveryWarehouseCode).Select(w => w.Id).FirstAsync();
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var today = db.BusinessDate;
         await using (var transaction = await db.Database.BeginTransactionAsync())
         {
             await db.EmployeeOperationalScopes.Where(s => s.EmployeeId == actor && s.OrganizationId == "SESS_PVT_LTD" && s.IsActive)

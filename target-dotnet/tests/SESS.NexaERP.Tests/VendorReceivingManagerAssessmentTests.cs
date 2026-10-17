@@ -32,7 +32,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             var td=await db.Employees.SingleAsync(x=>x.EmployeeCode=="SESS-01");
             var receiver=await db.Employees.SingleAsync(x=>x.Id==context.FirstOperatorId);
             actor.Set(td.Id,subjects[td.Id],"TECHNICAL_DIRECTOR");
-            var today=DateOnly.FromDateTime(DateTime.UtcNow);
+            var today=SESS.NexaERP.Application.Common.BusinessCalendar.DateAt(DateTimeOffset.UtcNow);
             // Real governed cover, not a direct SQL role or receipt-actor rewrite.
             var cover=await Post<EmployeeRoleSummary>(host.Client,$"/api/v1/employees/{receiver.EmployeeCode}/roles/temporary-cover",
                 new TemporaryRoleCoverRequest("PRODUCTION_MANAGER",today,today.AddDays(1),"Receiving-manager assessment witness cover"));

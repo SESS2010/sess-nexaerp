@@ -42,7 +42,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             var payables = await Get<VendorPayableView[]>(host.Client, financial + "payables");
             var payable = Assert.Single(payables, x => x.PurchaseOrderId == prior.Id);
             await Post<VendorPaymentView>(host.Client, financial + "payments",
-                new RecordVendorPaymentRequest(prior.VendorId, DateOnly.FromDateTime(DateTime.UtcNow),
+                new RecordVendorPaymentRequest(prior.VendorId, SESS.NexaERP.Application.Common.BusinessCalendar.DateAt(DateTimeOffset.UtcNow),
                     payable.OutstandingValue, "INR", "CASH-REVISION-SETTLE", "evidence/cash-revision-settle",
                     [new(payable.VendorBillId, payable.OutstandingValue)], "cash-revision-settle"));
 
@@ -60,7 +60,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             await using (var down = new NpgsqlCommand(SESS.NexaERP.Infrastructure.Persistence.Migrations.PurchaseOrderCancellationHistorySql.Change(false) + migrator.GenerateScript(current, previous), source))
                 await down.ExecuteNonQueryAsync();
             var legacy = await Post<VendorAdvanceView>(host.Client, financial + "advances",
-                new RecordVendorAdvanceRequest(prior.Id, DateOnly.FromDateTime(DateTime.UtcNow), 1m, "INR",
+                new RecordVendorAdvanceRequest(prior.Id, SESS.NexaERP.Application.Common.BusinessCalendar.DateAt(DateTimeOffset.UtcNow), 1m, "INR",
                     "LEGACY-OVER-CASH", "evidence/legacy-over-cash", "cash-revision-legacy"));
             await using (var up = new NpgsqlCommand(migrator.GenerateScript(previous, current) + SESS.NexaERP.Infrastructure.Persistence.Migrations.PurchaseOrderCancellationHistorySql.Change(true), source))
                 await up.ExecuteNonQueryAsync();
@@ -73,11 +73,11 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                     new SESS.NexaERP.Infrastructure.Authorization.EfRecordScopeAuthorizer(setup).AuthorizeAsync(
                         employee, role, new SESS.NexaERP.Application.Authorization.RecordScopeTarget(
                             "SESS_PVT_LTD", prior.RequestingDepartmentId, prior.DeliveryWarehouseId, null, prior.OwnerEmployeeId),
-                        DateOnly.FromDateTime(DateTime.UtcNow), default));
+                        SESS.NexaERP.Application.Common.BusinessCalendar.DateAt(DateTimeOffset.UtcNow), default));
                 if (beforeScope.Allowed) return;
                 // Explicit disposable authority fixture, never a financial-row edit or scope bypass.
                 // Grant only the department/warehouse needed by the actual configured approver.
-                var today = DateOnly.FromDateTime(DateTime.UtcNow);
+                var today = SESS.NexaERP.Application.Common.BusinessCalendar.DateAt(DateTimeOffset.UtcNow);
                 var setupResult = await Query(context.Options, async setup =>
                 {
                     var membership = await setup.EmployeeCompanyAssignments.SingleAsync(x => x.CompanyId == company &&
@@ -218,7 +218,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             var eligible = await Get<VendorAdvancePurchaseOrderOption[]>(host.Client, financial + "advance-purchase-orders");
             Assert.DoesNotContain(eligible, x => x.PurchaseOrderId == revision.Id);
             var anotherAdvance = await TimedRacePost(host.Client, financial + "advances",
-                new RecordVendorAdvanceRequest(revision.Id, DateOnly.FromDateTime(DateTime.UtcNow), 1m, "INR",
+                new RecordVendorAdvanceRequest(revision.Id, SESS.NexaERP.Application.Common.BusinessCalendar.DateAt(DateTimeOffset.UtcNow), 1m, "INR",
                     "NEW-REVISION-OVER-CASH", "evidence/new-revision-over-cash", "cash-new-revision-refused"));
             Assert.Equal(HttpStatusCode.Conflict, anotherAdvance.Status);
             Assert.Equal(afterIssue.GetRawText(), (await Snapshot()).GetRawText());

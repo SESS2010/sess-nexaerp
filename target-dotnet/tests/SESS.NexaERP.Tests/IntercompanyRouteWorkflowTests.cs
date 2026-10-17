@@ -26,7 +26,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         server.Execute("intercompany-workflow-schema.sql", model.GetService<IMigrator>().GenerateScript("0", model.Database.GetMigrations().Last()));
         var seller = MultiCompanyFoundationSeedData.SessPvtLtdId;
         var buyer = MultiCompanyFoundationSeedData.SessProprietorshipId;
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var today = SESS.NexaERP.Application.Common.BusinessCalendar.DateAt(DateTimeOffset.UtcNow);
         Guid accountsId, directorId, storesId, supportId;
         IReadOnlyDictionary<string, EffectiveRoleAssignment> assignments;
         var sellerSite = new CompanySite { CompanyId = seller, Code = "IC-SELLER-SITE", Name = "Seller witness site", SiteType = "FACTORY", AddressLine1 = "Witness only", City = "Chennai", State = "Tamil Nadu", StateCode = "33", PostalCode = "600001" };

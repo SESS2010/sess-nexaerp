@@ -61,7 +61,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 "/api/v1/accounts/vendor-financial-evidence/advance-purchase-orders");
             var response = await TimedRacePost(host.Client,
                 "/api/v1/accounts/vendor-financial-evidence/advances",
-                new RecordVendorAdvanceRequest(po, DateOnly.FromDateTime(DateTime.UtcNow), 1m, "INR",
+                new RecordVendorAdvanceRequest(po, SESS.NexaERP.Application.Common.BusinessCalendar.DateAt(DateTimeOffset.UtcNow), 1m, "INR",
                     "OVER-CASH-CAP", "evidence/cash-cap-refusal", "cash-cap-after-settlement"));
             var after = await Snapshot();
             var evidence = Path.Combine(FindRepositoryRoot(), "local-evidence", "item11");

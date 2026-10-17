@@ -25,7 +25,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 x.EmployeeId==context.FirstOperatorId&&x.IsActive).Select(x=>x.Subject).SingleAsync();
             actor.Set(context.FirstOperatorId,subject,"STORES_EXECUTIVE");
             await using var host=await PurchaseFlowHost.StartAsync(context.RuntimeConnection,actor,true,true);
-            var today=DateOnly.FromDateTime(DateTime.UtcNow);
+            var today=SESS.NexaERP.Application.Common.BusinessCalendar.DateAt(DateTimeOffset.UtcNow);
             const string key="stale-receipt-draft";
             var gate=await Post<GateEntryResult>(host.Client,"/api/v1/stores/gate-entries/",
                 new CreateGateEntryRequest(po.PoNumber,key+"-DC","TRIAL-VEHICLE","ROAD",DateTimeOffset.UtcNow,

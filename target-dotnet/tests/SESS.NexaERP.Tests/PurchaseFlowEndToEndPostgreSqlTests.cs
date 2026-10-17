@@ -47,7 +47,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         var previous = await db.EmployeeIdentityMappings.SingleAsync(row =>
             row.CompanyId == companyId && row.EmployeeId == employeeId && row.IsActive);
         previous.IsActive = false;
-        previous.EffectiveTo = DateOnly.FromDateTime(DateTime.UtcNow);
+        previous.EffectiveTo = SESS.NexaERP.Application.Common.BusinessCalendar.DateAt(DateTimeOffset.UtcNow);
         previous.Version++;
         previous.UpdatedAt = DateTimeOffset.UtcNow;
         previous.UpdatedBy = "IDENTITY_HANDOVER_WITNESS";
@@ -414,9 +414,9 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             user.Set(tdId, "SESS-01", Rev869ARoleCodes.TechnicalDirector);
             using (var refused = await approvalClient.PostAsJsonAsync("/api/v1/purchase/requisitions",
                 new CreatePurchaseRequisitionRequest("SESS_PVT_LTD", "PRODUCTION", "SESS-01",
-                    DateOnly.FromDateTime(DateTime.UtcNow).AddDays(30), "NORMAL",
+                    SESS.NexaERP.Application.Common.BusinessCalendar.DateAt(DateTimeOffset.UtcNow).AddDays(30), "NORMAL",
                     "Must be rejected outside requester scope", "TRIAL-WH-C01", null, null, null, null, null,
-                    [new("TRIAL-ITEM-001", 1, 100m, DateOnly.FromDateTime(DateTime.UtcNow).AddDays(30),
+                    [new("TRIAL-ITEM-001", 1, 100m, SESS.NexaERP.Application.Common.BusinessCalendar.DateAt(DateTimeOffset.UtcNow).AddDays(30),
                         "TRIAL-WH-C01", null, null, null)])))
             {
                 Assert.Equal(HttpStatusCode.Forbidden, refused.StatusCode);
@@ -825,7 +825,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Func<string,Guid,Task>? storesWorkload = null, Func<string,Guid,Task>? qcStock = null,
         Func<string,Guid,Task>? supplierInvoices = null, decimal receiptQuantity = 1m, decimal requestedQuantity = 1m, decimal expectedHandoffQuantity = 1m, HttpClient? technicalWitnessClient = null, Guid? technicalWitnessActorId = null, bool scopeAlignmentWitness = false, string? barcodeDateRuntimeConnection = null)
     {
-        var required = DateOnly.FromDateTime(DateTime.UtcNow).AddDays(30);
+        var required = SESS.NexaERP.Application.Common.BusinessCalendar.DateAt(DateTimeOffset.UtcNow).AddDays(30);
         user.Set(creatorId, "SESS-12", "IT_MANAGER");
         var employeePage=await Get<PagedResponse<SESS.NexaERP.Application.Employees.EmployeeSummary>>(prClient,"/api/v1/employees?page=1&pageSize=1");
         Assert.True(employeePage.TotalCount>1);var employee=Assert.Single(employeePage.Items);
@@ -999,7 +999,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                     new string((char)('A' + index), 64), "Entered from synthetic vendor quotation", 0, null,
                     $"{band.Code}-quote-{index + 1}",
                     [new(rfqLineId, handoff.HandoffQuantity, rate, 0, 0, 0, 0, 0,
-                        overdueQuoteDates && band.Code=="LOW" ? DateOnly.FromDateTime(DateTime.UtcNow).AddDays(-2) : required,
+                        overdueQuoteDates && band.Code=="LOW" ? SESS.NexaERP.Application.Common.BusinessCalendar.DateAt(DateTimeOffset.UtcNow).AddDays(-2) : required,
                         "9025", "33", "33", VendorRegistrationType.REGULAR.ToCanonicalValue(), 0)]));
             quotations.Add(quote);
             await AssertTransactionEvidence(options, "VendorQuotation", quote.Id, "SubmitQuotation");
@@ -1161,7 +1161,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
 
         IReadOnlyList<GoodsReceiptSerialRequest> serials=band.QuoteRate>5000m
             ? Enumerable.Range(1,checked((int)receiptQuantity)).Select(n => new GoodsReceiptSerialRequest(n,1,receiptQuantity==1?$"TRIAL-SERIAL-{band.Code}":$"TRIAL-SERIAL-{band.Code}-{n}",receiptQuantity==1?$"TRIAL-SERIAL-{band.Code}":$"TRIAL-SERIAL-{band.Code}-{n}",false,null)).ToArray() : [];
-        var billDate=DateOnly.FromDateTime(DateTime.UtcNow);var receivedAt=band.Code=="LOW"?DateTimeOffset.UtcNow.AddDays(-3):DateTimeOffset.UtcNow;
+        var billDate=SESS.NexaERP.Application.Common.BusinessCalendar.DateAt(DateTimeOffset.UtcNow);var receivedAt=band.Code=="LOW"?DateTimeOffset.UtcNow.AddDays(-3):DateTimeOffset.UtcNow;
         var grn=await Post<GoodsReceiptResult>(prClient,"/api/v1/stores/goods-receipts/",
             new CreateGoodsReceiptRequest(gate.GateEntryNumber,$"TRIAL-BILL-{band.Code}",billDate,receivedAt,"{\"billChecked\":true}",
                 [new(gate.Lines.Single().Id,[new(1,receiptQuantity,$"TRIAL-BATCH-{band.Code}",null,billDate.AddMonths(-1),billDate.AddYears(2))],serials)]),
@@ -2202,7 +2202,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
 
         user.Set(accountsSupportId, "SESS-41", "ACCOUNTS_ASSISTANT");
         await AssertPostStatus(client, "/api/v1/accounts/vendor-financial-evidence/advances",
-            new RecordVendorAdvanceRequest(grns[1].PurchaseOrderId, DateOnly.FromDateTime(DateTime.UtcNow),
+            new RecordVendorAdvanceRequest(grns[1].PurchaseOrderId, SESS.NexaERP.Application.Common.BusinessCalendar.DateAt(DateTimeOffset.UtcNow),
                 100m, "INR", "SUPPORT-REFUSED", "evidence/support-refused", "advance-support-refused"),
             HttpStatusCode.Forbidden);
 
@@ -2213,29 +2213,29 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             && x.VendorId == grns[1].VendorId && x.AvailableAdvanceAmount > 0);
         var firstAdvance = await Post<VendorAdvanceView>(client,
             "/api/v1/accounts/vendor-financial-evidence/advances",
-            new RecordVendorAdvanceRequest(grns[1].PurchaseOrderId, DateOnly.FromDateTime(DateTime.UtcNow).AddDays(-2),
+            new RecordVendorAdvanceRequest(grns[1].PurchaseOrderId, SESS.NexaERP.Application.Common.BusinessCalendar.DateAt(DateTimeOffset.UtcNow).AddDays(-2),
                 100m, "INR", "UTR-ADV-001", "evidence/advance-001", "advance-record-001"));
         var secondAdvance = await Post<VendorAdvanceView>(client,
             "/api/v1/accounts/vendor-financial-evidence/advances",
-            new RecordVendorAdvanceRequest(grns[1].PurchaseOrderId, DateOnly.FromDateTime(DateTime.UtcNow).AddDays(-1),
+            new RecordVendorAdvanceRequest(grns[1].PurchaseOrderId, SESS.NexaERP.Application.Common.BusinessCalendar.DateAt(DateTimeOffset.UtcNow).AddDays(-1),
                 150m, "INR", "UTR-ADV-002", "evidence/advance-002", "advance-record-002"));
         Assert.Equal(100m, firstAdvance.OutstandingAmount);
         Assert.Equal(150m, secondAdvance.OutstandingAmount);
         if(obligations is not null) await obligations("ADVANCES");
         var firstAdvanceReplay = await Post<VendorAdvanceView>(client,
             "/api/v1/accounts/vendor-financial-evidence/advances",
-            new RecordVendorAdvanceRequest(grns[1].PurchaseOrderId, DateOnly.FromDateTime(DateTime.UtcNow).AddDays(-2),
+            new RecordVendorAdvanceRequest(grns[1].PurchaseOrderId, SESS.NexaERP.Application.Common.BusinessCalendar.DateAt(DateTimeOffset.UtcNow).AddDays(-2),
                 100m, "INR", "UTR-ADV-001", "evidence/advance-001", "advance-record-001"));
         Assert.True(firstAdvanceReplay.Replayed);
         await AssertPostStatusContains(client,
             "/api/v1/accounts/vendor-financial-evidence/advances",
-            new RecordVendorAdvanceRequest(grns[1].PurchaseOrderId, DateOnly.FromDateTime(DateTime.UtcNow),
+            new RecordVendorAdvanceRequest(grns[1].PurchaseOrderId, SESS.NexaERP.Application.Common.BusinessCalendar.DateAt(DateTimeOffset.UtcNow),
                 expected[1].Payable, "INR", "UTR-ADV-CAP", "evidence/advance-cap", "advance-cap-refused"),
             HttpStatusCode.Conflict, "exceeds Purchase Order value");
 
         var reversibleAdvance = await Post<VendorAdvanceView>(client,
             "/api/v1/accounts/vendor-financial-evidence/advances",
-            new RecordVendorAdvanceRequest(grns[0].PurchaseOrderId, DateOnly.FromDateTime(DateTime.UtcNow),
+            new RecordVendorAdvanceRequest(grns[0].PurchaseOrderId, SESS.NexaERP.Application.Common.BusinessCalendar.DateAt(DateTimeOffset.UtcNow),
                 10m, "INR", "UTR-ADV-REV", "evidence/advance-reverse", "advance-reverse-record"));
         if(obligations is not null) await obligations("REVERSIBLE_ADVANCE");
         var advanceReversal = new ReverseVendorAdvanceRequest(
@@ -2270,7 +2270,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Assert.Equal("PRICE_MISMATCH", mismatched.MatchStatus);
         await AssertPostStatusContains(client,
             "/api/v1/accounts/vendor-financial-evidence/payments",
-            new RecordVendorPaymentRequest(mismatched.VendorId, DateOnly.FromDateTime(DateTime.UtcNow),
+            new RecordVendorPaymentRequest(mismatched.VendorId, SESS.NexaERP.Application.Common.BusinessCalendar.DateAt(DateTimeOffset.UtcNow),
                 1m, "INR", "UTR-DRAFT-REFUSED", "evidence/draft-refused",
                 [new VendorPaymentAllocationInput(mismatched.Id, 1m)], "payment-before-acceptance-refused"),
             HttpStatusCode.Conflict, "cannot be paid before acceptance");
@@ -2384,7 +2384,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Assert.NotEmpty(payableBills);
         var allocations = payableBills.Select(x => new VendorPaymentAllocationInput(x.Id, 1m)).ToArray();
         var paymentRequest = new RecordVendorPaymentRequest(
-            payableBills[0].VendorId, DateOnly.FromDateTime(DateTime.UtcNow), allocations.Sum(x => x.Amount),
+            payableBills[0].VendorId, SESS.NexaERP.Application.Common.BusinessCalendar.DateAt(DateTimeOffset.UtcNow), allocations.Sum(x => x.Amount),
             "INR", "UTR-PAY-001", "evidence/payment-001", allocations, "vendor-payment-record-001");
         VendorPaymentView payment;
         if (paymentRace is null)
@@ -2539,12 +2539,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
     { using var response=await client.PutAsJsonAsync(path,body);var payload=await response.Content.ReadAsStringAsync();Assert.True(response.IsSuccessStatusCode,$"{path} returned {(int)response.StatusCode}: {payload}");return JsonSerializer.Deserialize<T>(payload,new JsonSerializerOptions(JsonSerializerDefaults.Web))!; }
     private static string WitnessReportPath(string path)
     {
-        // The test ledger uses the local PostgreSQL business date; bill timestamps
-        // use UTC. Select an explicit cutoff containing both, rather than testing
-        // a UTC default across a local-midnight boundary.
-        var local=DateOnly.FromDateTime(DateTime.Today);
-        var utc=DateOnly.FromDateTime(DateTime.UtcNow);
-        var cutoff=local>utc?local:utc;
+        // Current report cutoffs follow the R1 company calendar; recorded instants stay UTC.
+        var cutoff=SESS.NexaERP.Application.Common.BusinessCalendar.DateAt(DateTimeOffset.UtcNow);
         return path+(path.Contains('?')?"&":"?")+"toDate="+cutoff.ToString("yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture);
     }
 
