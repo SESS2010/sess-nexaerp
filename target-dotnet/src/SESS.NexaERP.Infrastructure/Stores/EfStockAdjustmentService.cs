@@ -10,6 +10,8 @@ using SESS.NexaERP.Application.Common;
 using SESS.NexaERP.Application.Stores;
 using SESS.NexaERP.Domain.Foundation;
 using SESS.NexaERP.Domain.Stores;
+using SESS.NexaERP.Domain.Authorization;
+using SESS.NexaERP.Infrastructure.Authorization;
 using SESS.NexaERP.Infrastructure.Persistence;
 
 namespace SESS.NexaERP.Infrastructure.Stores;
@@ -113,6 +115,7 @@ public sealed partial class EfStockAdjustmentService(
 
     private async Task<StockAdjustmentView> CreateCoreAsync(CreateStockAdjustmentRequest request, CancellationToken ct)
     {
+        user.RequireAccountsBackupPageAction("stores.stock-adjustments","create");
         _ = user.RequireRole("create", RecorderRoles);
         var key = Required(request.IdempotencyKey, "IdempotencyKey", 100);
         var reasonKind = Required(request.ReasonKind, "ReasonKind", 30).ToUpperInvariant();
@@ -172,6 +175,7 @@ public sealed partial class EfStockAdjustmentService(
 
     private async Task<StockAdjustmentView> ReviseCoreAsync(Guid id, ReviseStockAdjustmentRequest request, CancellationToken ct)
     {
+        user.RequireAccountsBackupPageAction("stores.stock-adjustments","update");
         _ = user.RequireRole("update", RecorderRoles);
         var key = Required(request.IdempotencyKey, "IdempotencyKey", 100);
         var reason = Required(request.Reason, "Reason", 1000);
@@ -186,6 +190,7 @@ public sealed partial class EfStockAdjustmentService(
             StockAdjustmentStatuses.Draft, envelope.RequestFingerprint, reason, ct);
         if (await ReplayAsync(attempt, tx, ct) is { } replayed) return replayed;
         RequireVersion(adjustment, request.Version);
+        await AccountsDocumentConflictGuard.RequireStockAdjustmentDutyAsync(db,user,adjustment,AccountsDocumentDuty.Recorded,ct);
         if (adjustment.Status is not (StockAdjustmentStatuses.Draft or StockAdjustmentStatuses.Submitted or StockAdjustmentStatuses.Rejected))
             throw new StoresConflictException("Only a draft, submitted or rejected adjustment can be revised.");
         var lines = ValidateLines(request.Lines, adjustment.ReasonKind);
@@ -215,6 +220,7 @@ public sealed partial class EfStockAdjustmentService(
 
     private async Task<StockAdjustmentView> SubmitCoreAsync(Guid id, StockAdjustmentTransitionRequest request, CancellationToken ct)
     {
+        user.RequireAccountsBackupPageAction("stores.stock-adjustments","submit");
         _ = user.RequireRole("submit", RecorderRoles);
         var key = Required(request.IdempotencyKey, "IdempotencyKey", 100);
         var reason = Required(request.Reason, "Reason", 1000);
@@ -228,6 +234,7 @@ public sealed partial class EfStockAdjustmentService(
             StockAdjustmentStatuses.Submitted, envelope.RequestFingerprint, reason, ct);
         if (await ReplayAsync(attempt, tx, ct) is { } replayed) return replayed;
         RequireVersion(adjustment, request.Version);
+        await AccountsDocumentConflictGuard.RequireStockAdjustmentDutyAsync(db,user,adjustment,AccountsDocumentDuty.Recorded,ct);
         if (adjustment.Status != StockAdjustmentStatuses.Draft)
             throw new StoresConflictException("Only a draft adjustment can be submitted; a rejected one is revised first.");
         var snapshot = await CaptureAsync(company.Id, adjustment, ct);
@@ -245,6 +252,7 @@ public sealed partial class EfStockAdjustmentService(
 
     private async Task<StockAdjustmentView> ApproveCoreAsync(Guid id, StockAdjustmentDecisionRequest request, CancellationToken ct)
     {
+        user.RequireAccountsBackupPageAction("stores.stock-adjustments","approve");
         var key = Required(request.IdempotencyKey, "IdempotencyKey", 100);
         var reason = Required(request.Reason, "Reason", 1000);
         var company = await CompanyAsync(ct);
@@ -271,6 +279,7 @@ public sealed partial class EfStockAdjustmentService(
             StockAdjustmentStatuses.Approved, envelope.RequestFingerprint, reason, ct);
         if (await ReplayAsync(attempt, tx, ct) is { } replayed) return replayed;
         RequireVersion(adjustment, request.Version);
+        await AccountsDocumentConflictGuard.RequireStockAdjustmentDutyAsync(db,user,adjustment,role=="ACCOUNTS_MANAGER"?AccountsDocumentDuty.ValueReviewed:AccountsDocumentDuty.StoresDecision,ct);
         if (adjustment.Status != StockAdjustmentStatuses.Submitted)
             throw new StoresConflictException("Only a submitted adjustment can be approved.");
         var snapshot = await CaptureAsync(company.Id, adjustment, ct);
@@ -321,6 +330,7 @@ public sealed partial class EfStockAdjustmentService(
 
     private async Task<StockAdjustmentView> RejectCoreAsync(Guid id, StockAdjustmentTransitionRequest request, CancellationToken ct)
     {
+        user.RequireAccountsBackupPageAction("stores.stock-adjustments","reject");
         var key = Required(request.IdempotencyKey, "IdempotencyKey", 100);
         var reason = Required(request.Reason, "Reason", 1000);
         var role = user.RequireRole("reject", ApproverRoles);
@@ -334,6 +344,7 @@ public sealed partial class EfStockAdjustmentService(
             StockAdjustmentStatuses.Rejected, envelope.RequestFingerprint, reason, ct);
         if (await ReplayAsync(attempt, tx, ct) is { } replayed) return replayed;
         RequireVersion(adjustment, request.Version);
+        await AccountsDocumentConflictGuard.RequireStockAdjustmentDutyAsync(db,user,adjustment,role=="ACCOUNTS_MANAGER"?AccountsDocumentDuty.ValueReviewed:AccountsDocumentDuty.StoresDecision,ct);
         if (adjustment.Status != StockAdjustmentStatuses.Submitted)
             throw new StoresConflictException("Only a submitted adjustment can be rejected.");
         var snapshot = await CaptureAsync(company.Id, adjustment, ct);

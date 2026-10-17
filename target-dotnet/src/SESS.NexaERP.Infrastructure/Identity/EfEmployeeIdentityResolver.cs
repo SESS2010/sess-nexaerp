@@ -22,12 +22,25 @@ public sealed class EfEmployeeIdentityResolver(NexaErpDbContext db) : IEmployeeI
             .Where(x => x.EffectiveFrom <= onDate && (!x.EffectiveTo.HasValue || x.EffectiveTo.Value >= onDate))
             .Where(x => x.OrganizationId == normalizedOrganization).Take(2).ToListAsync(cancellationToken);
         if (mappings.Count != 1) return ResolvedEmployeeIdentity.Failed(mappings.Count == 0 ? "No active employee identity mapping exists." : "Identity mapping is ambiguous.");
-        return await ResolveMappedEmployeeAsync(mappings[0].Employee, mappings[0].EmployeeId, mappings[0].CompanyId,
-            mappings[0].OrganizationId, onDate, false, cancellationToken);
+        var mapping = mappings[0];
+        if (AccountsBackupIdentityPolicy.IsBackup(mapping.IdentityType))
+        {
+            var trustedApproversIssuer = await db.EmployeeIdentityMappings.AsNoTracking().AnyAsync(m =>
+                m.CompanyId == mapping.CompanyId && m.Issuer == mapping.Issuer && m.IsActive && m.IdentityType == IdentityTypes.Human &&
+                m.EffectiveFrom <= onDate && (!m.EffectiveTo.HasValue || m.EffectiveTo >= onDate) &&
+                db.EmployeeRoleAssignments.Any(a => a.EmployeeId == m.EmployeeId && a.CompanyId == m.CompanyId &&
+                    a.Role != null && a.Role.IsActive && (a.Role.Code == "TECHNICAL_DIRECTOR" || a.Role.Code == "MANAGING_DIRECTOR") &&
+                    (a.ApprovalStatus == "Approved" || a.ApprovalStatus == "SeedApproved") && a.EffectiveFrom <= onDate &&
+                    (!a.EffectiveTo.HasValue || a.EffectiveTo >= onDate)), cancellationToken);
+            if (!AccountsBackupIdentityPolicy.IsValidMapping(mapping.Employee?.EmployeeCode ?? "",mapping.IdentityType,trustedApproversIssuer))
+                return ResolvedEmployeeIdentity.Failed("Accounts backup requires the named employee and trusted approvers identity.");
+        }
+        return await ResolveMappedEmployeeAsync(mapping.Employee, mapping.EmployeeId, mapping.CompanyId,
+            mapping.OrganizationId, onDate, false, cancellationToken, mapping.IdentityType);
     }
 
     private async Task<ResolvedEmployeeIdentity> ResolveMappedEmployeeAsync(Employee? employee, Guid employeeId, Guid companyId,
-        string organization, DateOnly onDate, bool development, CancellationToken ct)
+        string organization, DateOnly onDate, bool development, CancellationToken ct, string identityAuthorityType = IdentityTypes.Human)
     {
         if (employee is null || !employee.LoginEnabled || !string.Equals(employee.Status, MasterStatuses.Active, StringComparison.OrdinalIgnoreCase))
             return new(false, employeeId, employee?.DepartmentId, organization, null, [], "Mapped employee is inactive or login disabled.");
@@ -55,6 +68,9 @@ public sealed class EfEmployeeIdentityResolver(NexaErpDbContext db) : IEmployeeI
             .Where(x => db.CompanyRoleActivations.Any(ca => ca.CompanyId == companyId && ca.RoleId == x.RoleId &&
                 ca.IsEnabled && ca.EffectiveFrom <= onDate && (!ca.EffectiveTo.HasValue || ca.EffectiveTo.Value >= onDate)))
             .Select(x => new { x.Id, Code = x.Role!.Code, x.AssignmentType }).ToListAsync(ct);
+        roles.RemoveAll(x => !AccountsBackupIdentityPolicy.AllowsAssignment(employee.EmployeeCode,identityAuthorityType,x.Code,x.AssignmentType));
+        if (AccountsBackupIdentityPolicy.IsBackup(identityAuthorityType) && roles.Count == 0)
+            return ResolvedEmployeeIdentity.Failed("No effective accounts-backup assignment exists for this identity.");
         // A revoked/expired requester role must not fall through to the legacy universal
         // employee item-master exemption. Other still-effective business roles remain unchanged.
         if (roles.Count == 0 && await db.EmployeeRoleAssignments.AsNoTracking().AnyAsync(x =>
@@ -69,7 +85,7 @@ public sealed class EfEmployeeIdentityResolver(NexaErpDbContext db) : IEmployeeI
         var full = assignments.Where(x => x.AssignmentType is EmployeeRoleAssignmentTypes.Full or EmployeeRoleAssignmentTypes.Temporary)
             .Select(x => x.RoleCode).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
         return new(true, employee.Id, primaryDepartments[0], organization, employee.EmployeeCode, roleCodes,
-            development ? "Development employee identity resolved." : "Employee identity resolved.", full, assignments);
+            development ? "Development employee identity resolved." : "Employee identity resolved.", full, assignments, identityAuthorityType);
     }
 
 #if DEBUG

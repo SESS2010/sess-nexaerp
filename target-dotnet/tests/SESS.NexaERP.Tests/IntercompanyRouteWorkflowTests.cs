@@ -45,7 +45,10 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             var authority = await db.EmployeeRoleAssignments.Where(a => a.CompanyId == seller && a.EmployeeId == directorId
                 && a.Role!.Code == "TECHNICAL_DIRECTOR" && a.AssignmentType == "FULL" && a.EffectiveTo == null).Select(a => a.Id).SingleAsync();
             await db.Database.ExecuteSqlInterpolatedAsync($"SELECT set_config('sess.role_authority_assignment_id',{authority.ToString()},true)");
-            supportId = await db.Employees.Where(e => e.EmployeeCode == "SESS-41").Select(e => e.Id).SingleAsync();
+            // Generic SUPPORT preparation uses an independent disposable actor. Canonical
+            // SESS-41 now has the separately tested OTP-only accounts profile; borrowing his
+            // ordinary staff subject would test that named exception instead of SUPPORT rules.
+            supportId = await db.Employees.Where(e => e.EmployeeCode == "SESS-05").Select(e => e.Id).SingleAsync();
             await db.Employees.Where(e => e.Id == supportId).ExecuteUpdateAsync(s => s.SetProperty(e => e.LoginEnabled,true));
             foreach (var support in new[] { (supportId,"ACCOUNTS_MANAGER"),(storesId,"TECHNICAL_DIRECTOR") })
             {
@@ -65,7 +68,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             db.VendorCompanyRelationships.Add(new VendorCompanyRelationship { CompanyId = buyer, VendorId = sellerVendor.Id, EffectiveFrom = today, ApprovedByEmployeeId = directorId, ApprovedAt = DateTimeOffset.UtcNow });
             db.CustomerCompanyRelationships.Add(new CustomerCompanyRelationship { CompanyId = seller, CustomerId = buyerCustomer.Id, EffectiveFrom = today, ApprovedByEmployeeId = directorId, ApprovedAt = DateTimeOffset.UtcNow });
             foreach (var company in new[] { seller, buyer })
-                foreach (var employee in new[] { (accountsId, "SESS-14"), (directorId, "SESS-01"), (storesId, "SESS-35"), (supportId, "SESS-41") })
+                foreach (var employee in new[] { (accountsId, "SESS-14"), (directorId, "SESS-01"), (storesId, "SESS-35"), (supportId, "SESS-05") })
                 {
                     var mapping = Mapping(company, employee.Item1, employee.Item2);
                     mapping.OrganizationId = company == seller ? "SESS_PVT_LTD" : "SESS_PROPRIETORSHIP";
@@ -98,7 +101,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             Assert.Equal(HttpStatusCode.Conflict, sameCompany.StatusCode);
         user.Set(storesId, "SESS-35", "STORES_EXECUTIVE");
         using (var forbidden = await client.PostAsJsonAsync(path, proposal)) Assert.Equal(HttpStatusCode.Forbidden, forbidden.StatusCode);
-        user.Set(supportId, "SESS-41", "ACCOUNTS_MANAGER");
+        user.Set(supportId, "SESS-05", "ACCOUNTS_MANAGER");
         Assert.NotEmpty((await Get<JsonElement>(client,path+"/options")).GetProperty("vendors").EnumerateArray());
         var proposed = await Post<IntercompanyRouteView>(client, path, proposal);
         Assert.Equal("PROPOSED", proposed.Status); Assert.Equal(1u, proposed.Version);

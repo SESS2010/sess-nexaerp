@@ -59,6 +59,7 @@ public static partial class MasterEndpoints
         var vendor = await db.Vendors.SingleOrDefaultAsync(x => x.VendorCode == MasterEndpointHelpers.NormalizeCode(vendorCode), cancellationToken);
         if (vendor is null) return Results.NotFound(new { message = "Vendor not found." });
         if (vendor.Version != request.Version) return Results.Conflict(new { message = "Stale record version. Refresh and retry." });
+        await SESS.NexaERP.Infrastructure.Authorization.AccountsVendorCommercialGuard.RequireIndependentAsync(db, currentUser, vendor, cancellationToken);
         var before = VendorControlledSnapshot(vendor);
         vendor.CommercialVerificationStatus = MasterApprovalStatuses.Approved;
         vendor.CommercialVerifiedBy = currentUser.LoginId;

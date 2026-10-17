@@ -3,12 +3,13 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using SESS.NexaERP.Application.Purchase;
+using SESS.NexaERP.Application.Common;
 using SESS.NexaERP.Domain.Purchase;
 using SESS.NexaERP.Infrastructure.Persistence;
 
 namespace SESS.NexaERP.Infrastructure.Purchase;
 
-public sealed class EfPurchaseApprovalWorkflowService(NexaErpDbContext db) : IPurchaseApprovalWorkflowService
+public sealed class EfPurchaseApprovalWorkflowService(NexaErpDbContext db, ICurrentUser? currentUser = null) : IPurchaseApprovalWorkflowService
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
@@ -112,13 +113,14 @@ public sealed class EfPurchaseApprovalWorkflowService(NexaErpDbContext db) : IPu
         if (actorEmployeeId == creatorEmployeeId) throw new UnauthorizedAccessException("Creator self-approval is prohibited.");
         if (requestedStep == 2 && priorStepEmployeeId == actorEmployeeId)
             throw new UnauthorizedAccessException("Level 2 approver must differ from level 1.");
-        if (step.EmployeeId != actorEmployeeId)
+        var independentAccountsBackup = AccountsBackupDecisionContext.CanSubstitute(currentUser,snapshot,step,actorEmployeeId);
+        if (step.EmployeeId != actorEmployeeId && !independentAccountsBackup)
             throw new UnauthorizedAccessException($"This approval step is awaiting {step.EmployeeCode} ({step.RoleCode}).");
         if (!actorRoleCodes.Any(x => string.Equals(x.Trim(), step.RoleCode, StringComparison.OrdinalIgnoreCase)))
             throw new UnauthorizedAccessException($"This approval step is awaiting {step.EmployeeCode} with role {step.RoleCode}.");
         var completed = requestedStep;
         return new(approvalCycle, requestedStep, snapshot.Steps.Count, completed,
-            completed == snapshot.Steps.Count, step.EmployeeId, step.RoleCode, snapshot.RouteCode, snapshot.Identity);
+            completed == snapshot.Steps.Count, actorEmployeeId, step.RoleCode, snapshot.RouteCode, snapshot.Identity);
     }
 
     public string Serialize(PurchaseApprovalWorkflowSnapshot snapshot) => JsonSerializer.Serialize(snapshot, Json);
