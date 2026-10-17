@@ -25,7 +25,7 @@ public static class DevelopmentAuthEndpoints
 
         group.MapGet("/identities", async (NexaErpDbContext db, CancellationToken cancellationToken) =>
         {
-            var today = DateOnly.FromDateTime(DateTime.UtcNow);
+            var today = db.BusinessDate;
             var identities = await (from assignment in db.EmployeeCompanyAssignments.AsNoTracking()
                 join employee in db.Employees.AsNoTracking() on assignment.EmployeeId equals employee.Id
                 join company in db.Companies.AsNoTracking() on assignment.CompanyId equals company.Id
@@ -55,7 +55,7 @@ public static class DevelopmentAuthEndpoints
             }
 
             var code = requestedEmployeeCode.ToUpperInvariant();
-            var today = DateOnly.FromDateTime(DateTime.UtcNow);
+            var today = db.BusinessDate;
             var query = from assignment in db.EmployeeCompanyAssignments.AsNoTracking()
                 join employee in db.Employees.AsNoTracking() on assignment.EmployeeId equals employee.Id
                 join company in db.Companies.AsNoTracking() on assignment.CompanyId equals company.Id

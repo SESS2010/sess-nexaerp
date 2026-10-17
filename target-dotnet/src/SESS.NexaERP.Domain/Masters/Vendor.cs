@@ -37,7 +37,7 @@ public sealed class Vendor : AuditableEntity
     public string CommercialVerificationStatus { get; set; } = MasterApprovalStatuses.Draft;
     public string? CommercialVerifiedBy { get; set; }
     public DateTimeOffset? CommercialVerifiedAt { get; set; }
-    public DateOnly EffectiveFrom { get; set; } = DateOnly.FromDateTime(DateTime.UtcNow);
+    public DateOnly EffectiveFrom { get; set; } = SESS.NexaERP.Domain.Common.BusinessDatePolicy.KolkataDate(DateTimeOffset.UtcNow);
     public DateOnly? EffectiveTo { get; set; }
     public bool RequiresReverification { get; set; }
     public string? ApprovedBy { get; set; }

@@ -10,6 +10,7 @@ import type {
   CreateQcInspectionPolicyRequest,
   QcPolicyDecisionRequest,
   InventoryConcessionResult,
+  InventoryConcessionListItem,
   RejectInventoryConcessionRequest,
   ReverseInventoryConcessionRequest,
   FinalizeQcInspectionRequest,
@@ -144,6 +145,12 @@ export function decideQcPolicy(policyId: string, approve: boolean, body: QcPolic
 /* permission qc.inspection-policies:approve (reject/approve) or :cancel */
 /* (reverse).                                                            */
 /* ------------------------------------------------------------------ */
+
+export function listConcessions(page: number, status?: string): Promise<PagedResponse<InventoryConcessionListItem>> {
+  const params = new URLSearchParams({ page: String(page), pageSize: '25' })
+  if (status) params.set('status', status)
+  return api.getPaged<InventoryConcessionListItem>(`${BASE}/concessions?${params}`)
+}
 
 export function getConcession(concessionNumber: string): Promise<InventoryConcessionResult> {
   return api.get<InventoryConcessionResult>(`${BASE}/concessions/${encodeURIComponent(concessionNumber)}`)

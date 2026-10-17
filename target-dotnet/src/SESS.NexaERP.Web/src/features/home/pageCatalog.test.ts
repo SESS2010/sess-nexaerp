@@ -136,3 +136,8 @@ test('master import shortcuts follow their own view grants', () => {
   assert.ok(!denied.includes('UOM Import'))
   assert.ok(!denied.includes('Manufacturer Import'))
 })
+
+test('requester-only Home fallback offers only the own-MIR shortcut and no global company/report page', () => {
+  const groups = shortcutGroups(canFrom([`${PAGE_KEYS.ownMirs}:view`]), true, false)
+  assert.deepEqual(groups.flatMap((group) => group.entries.map((entry) => entry.to)), ['/employee/my-mirs'])
+})

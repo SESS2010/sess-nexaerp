@@ -76,12 +76,26 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 SupersedesAssessmentId=first.Id,TechnicalPoints=13,Reason="QC correction retains the earlier receiving-manager evidence",IdempotencyKey="qc-after-receiving-manager"});
             Assert.Equal(qc.Id,correction.ActorEmployeeId);Assert.Equal(2,correction.RevisionNumber);
             Assert.Equal(assignments[TaxWorkflowUser.AssignmentKey(qc.Id,"QC_MANAGER")].AssignmentId,correction.RoleAssignmentId);
-            var extension=new VendorReceivingManagerAssessments {ActiveProvider="Npgsql.EntityFrameworkCore.PostgreSQL"};
-            var refusedDown=await Assert.ThrowsAsync<PostgresException>(async()=> {
-                foreach(var operation in extension.DownOperations.Cast<SqlOperation>())
-                    await db.Database.ExecuteSqlRawAsync(operation.Sql);
-            });
-            Assert.Contains("retained Production Manager assessment evidence",refusedDown.MessageText);
+            const string assessmentSignature="advance.record_vendor_manual_assessment(uuid,uuid,uuid,bigint,uuid,numeric,numeric,numeric,text,uuid,text,uuid,text,text)";
+            var currentDefinition=await db.Database.SqlQueryRaw<string>(
+                "SELECT pg_get_functiondef('"+assessmentSignature+"'::regprocedure) AS \"Value\"").SingleAsync();
+            // This proof targets the historical extension's retained-evidence guard, not a downgrade
+            // of today's calendar. Isolate its predecessor date expression in a rolled-back fixture
+            // transaction; keep every original evidence/refusal assertion and restore exact metadata.
+            await using(var historicalProof=await db.Database.BeginTransactionAsync())
+            {
+                await db.Database.ExecuteSqlRawAsync(InstalledFunctionSql.Rewrite(assessmentSignature,
+                    (KolkataCurrentBusinessDates.KolkataLower,"current_date",1)));
+                var extension=new VendorReceivingManagerAssessments {ActiveProvider="Npgsql.EntityFrameworkCore.PostgreSQL"};
+                var refusedDown=await Assert.ThrowsAsync<PostgresException>(async()=> {
+                    foreach(var operation in extension.DownOperations.Cast<SqlOperation>())
+                        await db.Database.ExecuteSqlRawAsync(operation.Sql);
+                });
+                Assert.Contains("retained Production Manager assessment evidence",refusedDown.MessageText);
+                await historicalProof.RollbackAsync();
+            }
+            Assert.Equal(currentDefinition,await db.Database.SqlQueryRaw<string>(
+                "SELECT pg_get_functiondef('"+assessmentSignature+"'::regprocedure) AS \"Value\"").SingleAsync());
             manager.Set(receiver.Id,subjects[receiver.Id],"PRODUCTION_MANAGER");
             var retained=await Get<VendorManualAssessmentView[]>(managerHost.Client,$"{path}/for-receipt/{receipt.Id}");
             Assert.Equal(new[]{first.Id,correction.Id},retained.Select(x=>x.Id));

@@ -58,7 +58,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             }
             await seed.SaveChangesAsync();
         }
-        var roleOnDate = DateOnly.FromDateTime(DateTime.UtcNow);
+        var roleOnDate = await Query(options, db => Task.FromResult(db.BusinessDate));
         var assignments = await Query(options, async db =>
             (await db.EmployeeRoleAssignments.AsNoTracking().Include(x => x.Role)
                 .Where(x => x.CompanyId == companyId && (x.ApprovalStatus == "Approved" || x.ApprovalStatus == "SeedApproved")
@@ -70,7 +70,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Assert.NotEqual(Guid.Empty, Assert.Single(user.EffectiveRoleAssignments).AssignmentId);
         await using var host = await PurchaseFlowHost.StartAsync(runtime, user, useRealPagePermissions: true, useRealOperationalScopes: true);
         var client = host.Client;
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var today = roleOnDate;
 
         // 1. Real warehouse and one rack per stock condition the receipt chain needs.
         await Post<JsonElement>(client, "/api/v1/inventory/warehouses", new UpsertWarehouseRequest(

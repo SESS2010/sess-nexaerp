@@ -90,6 +90,7 @@ export interface CreateOpeningStockFromImportRequest {
 }
 
 export interface OpeningStockTransitionRequest {
+  IndependentMdReview?: boolean
   Version: number
   Reason: string
   IdempotencyKey: string

@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using SESS.NexaERP.Application.Identity;
+using SESS.NexaERP.Application.Common;
 using SESS.NexaERP.Api.Security;
 
 namespace SESS.NexaERP.Api.Middleware;
@@ -19,17 +20,17 @@ public sealed class EmployeeIdentityResolutionMiddleware(RequestDelegate next)
 #if DEBUG
             var developmentEmployeeCode = context.User.FindFirstValue(DevelopmentTokenService.ImpersonatedEmployeeCodeClaim);
             var resolution = context.RequestServices.GetService<DevelopmentTokenService>() is not null && !string.IsNullOrWhiteSpace(developmentEmployeeCode)
-                ? await resolver.ResolveDevelopmentEmployeeAsync(developmentEmployeeCode, organization, DateOnly.FromDateTime(DateTime.UtcNow), context.RequestAborted)
+                ? await resolver.ResolveDevelopmentEmployeeAsync(developmentEmployeeCode, organization, RequestBusinessDate.ForRequest(context), context.RequestAborted)
                 : string.IsNullOrWhiteSpace(issuer) || string.IsNullOrWhiteSpace(subject)
                     ? ResolvedEmployeeIdentity.Failed("Exact OIDC issuer and subject are required.")
-                    : await resolver.ResolveAsync(issuer, subject, organization, DateOnly.FromDateTime(DateTime.UtcNow), context.RequestAborted);
+                    : await resolver.ResolveAsync(issuer, subject, organization, RequestBusinessDate.ForRequest(context), context.RequestAborted);
 #else
             var resolution = string.IsNullOrWhiteSpace(issuer) || string.IsNullOrWhiteSpace(subject)
                 ? ResolvedEmployeeIdentity.Failed("Exact OIDC issuer and subject are required.")
-                : await resolver.ResolveAsync(issuer, subject, organization, DateOnly.FromDateTime(DateTime.UtcNow), context.RequestAborted);
+                : await resolver.ResolveAsync(issuer, subject, organization, RequestBusinessDate.ForRequest(context), context.RequestAborted);
 #endif
             if (resolution.Success &&
-                resolution.RoleCodes.Any(role => role is "TECHNICAL_DIRECTOR" or "MANAGING_DIRECTOR" or "ACCOUNTS_MANAGER" or "CHIEF_FINANCIAL_OFFICER") &&
+                resolution.RoleCodes.Any(role => role is "TECHNICAL_DIRECTOR" or "MANAGING_DIRECTOR" or "ACCOUNTS_MANAGER" or "CHIEF_FINANCIAL_OFFICER" or "MIR_APPROVER") &&
                 validated?.MfaAssured != true
 #if DEBUG
                 && context.RequestServices.GetService<DevelopmentTokenService>() is null
@@ -52,6 +53,17 @@ public sealed class EmployeeIdentityResolutionMiddleware(RequestDelegate next)
                 await context.Response.WriteAsJsonAsync(new
                 {
                     message = "Your sign-in is valid, but ERP access is not configured or is inactive for this company. Contact your administrator to check your employee identity mapping, company assignment and login status."
+                }, context.RequestAborted);
+                return;
+            }
+            if (MirRequesterPolicy.IsMirOnly(resolution.RoleCodes) &&
+                context.Request.Path.StartsWithSegments("/api/v1", StringComparison.OrdinalIgnoreCase) &&
+                !MirRequesterPolicy.AllowsMirApiPath(resolution.RoleCodes,context.Request.Path.Value ?? ""))
+            {
+                context.Response.StatusCode = StatusCodes.Status403Forbidden;
+                await context.Response.WriteAsJsonAsync(new
+                {
+                    message = "This sign-in is limited to your own material requests and return declarations."
                 }, context.RequestAborted);
                 return;
             }

@@ -158,6 +158,7 @@ public sealed class AuthenticationBootstrapSteps7To12Tests
             var builder = WebApplication.CreateBuilder(new WebApplicationOptions { Args = [], EnvironmentName = "Test" });
             builder.WebHost.UseUrls($"http://127.0.0.1:{port}");
             builder.Services.AddRouting();
+            builder.Services.AddSingleton<SESS.NexaERP.Application.Common.IDateTimeProvider, SESS.NexaERP.Infrastructure.SystemClock>();
             builder.Services.AddAuthentication(TestOnlyAuthenticationHandler.SchemeName).AddScheme<AuthenticationSchemeOptions, TestOnlyAuthenticationHandler>(TestOnlyAuthenticationHandler.SchemeName, _ => { });
             builder.Services.AddAuthorization(); builder.Services.AddHttpContextAccessor();
             builder.Services.AddDbContext<NexaErpDbContext>(options => options.UseNpgsql("Host=127.0.0.1;Port=1;Database=no_connect;Username=no_connect"));

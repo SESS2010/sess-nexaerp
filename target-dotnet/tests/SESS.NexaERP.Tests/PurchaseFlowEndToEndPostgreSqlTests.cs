@@ -87,7 +87,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Func<FifoPartialFitmentReturnContext,Task>? fifoPartialReturn = null,
         Func<SupplierInvoiceWitnessContext,Task>? supplierInvoices = null, Func<MachineDeliveryWitnessContext,Task>? machineDelivery = null,
         Func<DbContextOptions<NexaErpDbContext>,Task>? intercompanySetup = null,
-        Func<SupplierInvoiceWitnessContext,Task>? intercompanyPurchase = null, bool multiSerialQcWitness = false, bool rosterSupportFixture = false, bool scopeAlignmentWitness = false)
+        Func<SupplierInvoiceWitnessContext,Task>? intercompanyPurchase = null, bool multiSerialQcWitness = false, bool rosterSupportFixture = false, bool scopeAlignmentWitness = false, bool portalOwnershipWitness = false)
     {
         var bootstrapOptions = new DbContextOptionsBuilder<NexaErpDbContext>()
             .UseNpgsql("Host=127.0.0.1;Port=1;Database=no_connect;Username=no_connect").Options;
@@ -243,6 +243,21 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             await seed.SaveChangesAsync();
         }
 
+        if (portalOwnershipWitness) server.Execute("portal-runtime-assignments.sql", """
+            DO $fixture$ DECLARE authority uuid; source advance.employee_role_assignments%ROWTYPE; BEGIN
+              SELECT a."Id" INTO STRICT authority FROM advance.employee_role_assignments a JOIN advance.employees e ON e."Id"=a."EmployeeId"
+                JOIN advance.roles r ON r."Id"=a."RoleId" WHERE e."EmployeeCode"='SESS-01' AND r."Code"='TECHNICAL_DIRECTOR'
+                  AND a."CompanyId"='70000000-0000-0000-0000-000000000001' AND a."EffectiveTo" IS NULL LIMIT 1;
+              PERFORM set_config('sess.role_authority_assignment_id',authority::text,true);
+              FOR source IN SELECT DISTINCT ON(a."EmployeeId") a.* FROM advance.employee_role_assignments a JOIN advance.employees e ON e."Id"=a."EmployeeId"
+                WHERE a."CompanyId"='70000000-0000-0000-0000-000000000001' AND (e."EmployeeCode"='SESS-05' OR e."EmployeeCode"='TEST-R1-PURCHASE-SUPPORT')
+                  AND a."EffectiveTo" IS NULL AND a."AssignmentType"='FULL' ORDER BY a."EmployeeId",a."Id" LOOP
+                INSERT INTO advance.employee_role_assignments SELECT * FROM jsonb_populate_record(NULL::advance.employee_role_assignments,
+                  to_jsonb(source)||jsonb_build_object('Id',gen_random_uuid(),'RoleId',md5('RC26:MIR_REQUESTER')::uuid,
+                    'CreatedBy','PORTAL-OWNERSHIP-FIXTURE','EffectiveFrom',advance.current_business_date(),'Version',0));
+              END LOOP;
+            END $fixture$;
+            """);
         if (intercompanySetup is not null) await intercompanySetup(options);
         using var environment = new OrdinaryPrincipalEnvironment(server.ConnectionString, runtimePassword);
         Assert.Equal(0, await DatabasePrincipalCommand.RunAsync(["database-principals", "provision"]));
@@ -489,7 +504,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                     productionId, storesManagerId, "mir-consumable-approve", server.ReadDiagnosticLog)),
                 issueRace is null ? null : (draft, command) => issueRace(new(options, runtimeConnection,
                     draft, command, storesId, secondReceiptOperatorId, server.ReadDiagnosticLog, server.Restart)),
-                storesWorkload is null ? null : (stage,id)=>storesWorkload(new(options,runtimeConnection,stage,id,"MIR")), barcodeDateWitness: multiSerialQcWitness);
+                storesWorkload is null ? null : (stage,id)=>storesWorkload(new(options,runtimeConnection,stage,id,"MIR")), barcodeDateWitness: multiSerialQcWitness, portalClient: portalOwnershipWitness ? qcHost.Client : null);
 
             user.Set(tdId, "SESS-01", Rev869ARoleCodes.TechnicalDirector);
             await AssertStockReportsFromPurchaseWitness(client, options, user, managerId, tdId);
@@ -1027,6 +1042,15 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         if (workload is not null) await workload("COMPARISON_APPROVAL", comparison.Id);
 
         user.Set(managerId, "SESS-14", Rev869ARoleCodes.AccountsManager);
+        // F21: the assigned approver must name the compared vendors without a quotation-list grant.
+        var approverComparison = await Get<JsonElement>(client, $"/api/v1/purchase/comparisons/{comparison.Number}");
+        Assert.All(approverComparison.GetProperty("Lines").EnumerateArray(), line =>
+        {
+            Assert.False(string.IsNullOrWhiteSpace(line.GetProperty("QuotationNumber").GetString()));
+            Assert.False(string.IsNullOrWhiteSpace(line.GetProperty("VendorCode").GetString()));
+            Assert.False(string.IsNullOrWhiteSpace(line.GetProperty("VendorName").GetString()));
+            Assert.Contains(line.GetProperty("VendorId").GetGuid(), new[] { vendor1Id, vendor2Id });
+        });
         comparison = await Post<Rev869BDocumentResult>(client, $"/api/v1/purchase/comparisons/{comparison.Number}/approve",
             new Rev869BApprovalActionRequest("Level 1 comparison approval", comparison.Version, $"{band.Code}-comparison-approve-1"));
         if (band.Level2EmployeeId.HasValue)
@@ -1045,6 +1069,13 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 new Rev869BApprovalActionRequest("Level 2 comparison approval", comparison.Version, $"{band.Code}-comparison-approve-2"));
         }
         Assert.Equal(Rev869BStatuses.Approved, comparison.Status);
+        if (band.Level2EmployeeId.HasValue)
+        {
+            var timeline = await Get<SESS.NexaERP.Application.Tracking.TrackingHistory>(client, $"/api/v1/tracking/COMPARISON/{comparison.Id}/history");
+            Assert.Equal(comparison.Id, timeline.DocumentId);
+            Assert.Contains(timeline.Events, e => e.Action == "Approve");
+            if (scopeAlignmentWitness) await ProveTrackingActorRefusals(options, user, "COMPARISON", comparison.Id, tdId, mdId);
+        }
         if (scopeAlignmentWitness && band.Level2EmployeeId.HasValue)
             Assert.Equal(comparison.Id, (await Get<JsonElement>(client, $"/api/v1/purchase/comparisons/{comparison.Number}")).GetProperty("Id").GetGuid());
         user.Set(purchaseId, "SESS-15", Rev869ARoleCodes.PurchaseManager,
@@ -1083,6 +1114,13 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 new Rev869BPoApprovalActionRequest("Level 2 PO approval", po.Version, null, $"{band.Code}-po-approve-2"));
         }
         Assert.Equal(Rev869BStatuses.Approved, po.Status);
+        if (band.Level2EmployeeId.HasValue)
+        {
+            var timeline = await Get<SESS.NexaERP.Application.Tracking.TrackingHistory>(client, $"/api/v1/tracking/PO/{po.Id}/history");
+            Assert.Equal(po.Id, timeline.DocumentId);
+            Assert.Contains(timeline.Events, e => e.Action == "Approve");
+            if (scopeAlignmentWitness) await ProveTrackingActorRefusals(options, user, "PO", po.Id, tdId, mdId);
+        }
         if (scopeAlignmentWitness && band.Level2EmployeeId.HasValue)
         {
             Assert.Equal(po.Id, (await Get<JsonElement>(client, $"/api/v1/purchase/purchase-orders/{po.Number}")).GetProperty("Id").GetGuid());
@@ -1194,9 +1232,16 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         {
             if(correctionWitness is not null) result=await correctionWitness(result,request);
             var failed=Assert.Single(result.ParameterResults);var concessionSerialId=Assert.Single(result.SerialDispositions).InventorySerialId;var draft=await Post<InventoryConcessionResult>(client,"/api/v1/qc/concessions",new CreateInventoryConcessionRequest(result.QcInspectionLotDispositionId,failed.Id,1,"DIMENSIONAL_LIMIT",failed.MeasuredValue,"Technical Director accepts measured deviation for controlled non-critical use","Controlled internal test fixture",[concessionSerialId]),"MD-concession-create");Assert.Equal("DRAFT",draft.Status);Assert.Equal(concessionSerialId,Assert.Single(draft.InventorySerialIds));
-            user.Set(tdId,"SESS-01",Rev869ARoleCodes.TechnicalDirector);var approved=concessionWitness is null
+            user.Set(tdId,"SESS-01",Rev869ARoleCodes.TechnicalDirector);
+            var concessionQueue = await Get<PagedResponse<InventoryConcessionListItem>>(client,"/api/v1/qc/concessions?status=DRAFT&page=1&pageSize=25");
+            Assert.Contains(concessionQueue.Items, x => x.Id == draft.Id && x.ConcessionNumber == draft.ConcessionNumber && x.Quantity == draft.Quantity);
+            using (var invalidPage = await client.GetAsync("/api/v1/qc/concessions?page=0")) Assert.Equal(HttpStatusCode.BadRequest, invalidPage.StatusCode);
+            using (var invalidStatus = await client.GetAsync("/api/v1/qc/concessions?status=UNKNOWN")) Assert.Equal(HttpStatusCode.BadRequest, invalidStatus.StatusCode);
+            var approved=concessionWitness is null
                 ? await Post<InventoryConcessionResult>(client,$"/api/v1/qc/concessions/{draft.ConcessionNumber}/approve",new ApproveInventoryConcessionRequest(draft.Version,available,"Direct technical acceptance"),"MD-concession-approve")
                 : await concessionWitness(result,request,draft,available);Assert.Equal("APPROVED",approved.Status);Assert.NotNull(approved.StockPostingBatchId);Assert.Contains("DIMENSIONAL_LIMIT",approved.ProvenanceAnnotationJson);Assert.Contains(tdId.ToString(),approved.ProvenanceAnnotationJson);
+            Assert.DoesNotContain((await Get<PagedResponse<InventoryConcessionListItem>>(client,"/api/v1/qc/concessions?status=DRAFT")).Items, x => x.Id == approved.Id);
+            Assert.Contains((await Get<PagedResponse<InventoryConcessionListItem>>(client,"/api/v1/qc/concessions?status=APPROVED")).Items, x => x.Id == approved.Id);
             Assert.Equal(result.RevisionId,approved.QcInspectionRevisionId);
             Assert.Equal(failed.MeasuredValue,approved.MeasuredValue);
             using(var annotation=JsonDocument.Parse(approved.ProvenanceAnnotationJson!))
@@ -1213,7 +1258,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Func<string>? readPostgresLog = null, bool serializedRace = false,
         Func<MaterialIssueRequestView, Task<MaterialIssueRequestView>>? approveRace = null,
         Func<MaterialIssueRequestView, CreateMaterialIssue, Task<MaterialIssueView>>? issueRace = null,
-        Func<string,Guid,Task>? storesWorkload = null, bool barcodeDateWitness = false)
+        Func<string,Guid,Task>? storesWorkload = null, bool barcodeDateWitness = false, HttpClient? portalClient = null)
     {
         var companyId = Guid.Parse("70000000-0000-0000-0000-000000000001");
         var itemId = grn.Lines.Single().ItemId;
@@ -1608,6 +1653,9 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             new AcceptMaterialReturn(consumableReturn.Version, DateTimeOffset.UtcNow,
                 "Consumable remainder accepted exactly like any other material", "material-return-consumable-accept"));
 
+        if (portalClient is not null)
+            await AssertEmployeePortalOwnership(portalClient,user,purchaseId,engineerId,mir,issue,materialReturn,consumableReturn);
+
         var fifoBeforeAcceptance = await Query(options, db => db.FifoInventoryCostLayers
             .Where(x => x.GoodsReceiptLineId == grn.Lines.Single().Id)
             .Select(x => new { x.Id, x.UnitCost, x.LayerValue, x.QuantityReceived }).SingleAsync());
@@ -1926,7 +1974,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Guid uomId, Guid departmentId, Guid engineerId, Guid purchaseId, Guid productionId, Guid storesId,
         Guid? jobOrderId = null, Guid? tdId = null, string? runtimeConnection = null,
         Func<ReturnFitmentRaceContext, Task<MaterialReturnView>>? returnRace = null, Func<string>? readPostgresLog = null,
-        Func<MaterialIssueRequestView, CreateMaterialIssue, Task<MaterialIssueView>>? issueRace = null, bool barcodeDateWitness = false)
+        Func<MaterialIssueRequestView, CreateMaterialIssue, Task<MaterialIssueView>>? issueRace = null, bool barcodeDateWitness = false, HttpClient? portalClient = null)
     {
         var receivedLine = grn.Lines.Single();
         var serial = Assert.Single(receivedLine.Serials);
@@ -2623,6 +2671,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             app.MapProductionEngineeringEndpoints();
             app.MapJobOrderEndpoints();
             app.MapMaterialIssueEndpoints();
+            app.MapEmployeeMirPortalEndpoints();
             app.MapCompanyReportEndpoints();
             app.MapPurchaseWorkloadEndpoints();
             app.MapPurchaseSpendingEndpoints();
@@ -2639,6 +2688,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             app.MapInventoryPeriodEndpoints();
             app.MapCompanyProfileEndpoints();
             app.MapTrackingEndpoints();
+            app.MapSessionEndpoints();
             app.MapVendorManualAssessmentEndpoints();
             app.MapVendorRatingEvidenceEndpoints();
             app.MapVendorFinancialEvidenceEndpoints();

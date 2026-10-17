@@ -35,6 +35,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         using var environment = new OrdinaryPrincipalEnvironment(server.ConnectionString, "opening-race-runtime-123456789");
         Assert.Equal(0, await DatabasePrincipalCommand.RunAsync(["database-principals", "provision"]));
         server.Execute("opening-race-current-schema.sql", migrator.GenerateScript(migrations[index - 1], migrations[^1]));
+        // Match the real installer after upgrading: transfer new helper ownership and reapply runtime ACLs.
+        Assert.Equal(0, await DatabasePrincipalCommand.RunAsync(["database-principals", "provision"]));
         var options = new DbContextOptionsBuilder<NexaErpDbContext>().UseNpgsql(server.ConnectionString).Options;
         var companyId = Guid.Parse("70000000-0000-0000-0000-000000000001");
         var employeeIds = new Dictionary<string, Guid>();

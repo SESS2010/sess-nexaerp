@@ -1,3 +1,4 @@
+import { businessDate, addBusinessDays } from '../../utils/businessDate'
 import { getCompany } from '../../auth/authSession'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { listItems, listUoms } from '../../api/items'
@@ -56,9 +57,7 @@ interface Props {
 const SPARE_SALES_TYPES = new Set(['spares', 'spares & service'])
 
 function todayPlus(days: number): string {
-  const date = new Date()
-  date.setDate(date.getDate() + days)
-  return date.toISOString().slice(0, 10)
+  return addBusinessDays(businessDate(), days)
 }
 
 function emptyLine(): DraftLine {

@@ -194,13 +194,23 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         public string? OrganizationId => CurrentOrganizationId;
         public string CurrentOrganizationId { get; private set; } = "SESS_PVT_LTD";
         public bool IsAuthenticated => true;
-        public string? IdentityIssuer => "https://issuer.purchase-flow.test";
+        public string IdentityAuthorityType {get;private set;}="HUMAN";
+        public string? EmployeeCode {get;private set;}
+        public void SetAuthorityProfile(string type,string code){IdentityAuthorityType=type;EmployeeCode=code;}
+        public string? IdentityIssuer => CurrentIssuer;
+        public string CurrentIssuer {get;private set;} = "https://issuer.purchase-flow.test";
+        public Guid? DepartmentId {get;private set;}
+        public void SetIdentityContext(string issuer,Guid department){CurrentIssuer=issuer;DepartmentId=department;}
         public string? IdentitySubject => LoginId;
         public Guid? EmployeeId => CurrentEmployeeId;
         public TaxWorkflowUser ForRequest() => new(CurrentEmployeeId, LoginId, "none", knownAssignments)
         {
             assignments = assignments.ToArray(),
-            CurrentOrganizationId = CurrentOrganizationId
+            CurrentOrganizationId = CurrentOrganizationId,
+            CurrentIssuer = CurrentIssuer,
+            DepartmentId = DepartmentId,
+            IdentityAuthorityType = IdentityAuthorityType,
+            EmployeeCode = EmployeeCode
         };
         public void SetResolvedRoleAuthority(ResolvedRoleAuthority value)
         {
@@ -216,6 +226,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             CurrentEmployeeId = id;
             LoginId = rotatedSubjects.GetValueOrDefault(id, subject);
             authority = null;
+            IdentityAuthorityType="HUMAN";EmployeeCode=null;
             var roles = effectiveRoles.Length == 0 ? [roleCode] : effectiveRoles;
             assignments = roles.Distinct(StringComparer.Ordinal).Select(code =>
                 knownAssignments.TryGetValue(AssignmentKey(id, code), out var assignment)
