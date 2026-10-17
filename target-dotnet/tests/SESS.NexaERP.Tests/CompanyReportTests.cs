@@ -197,6 +197,19 @@ public sealed class CompanyReportWorkbookTests
             ReportCalendarOptions.DateInZone(instant,options.Resolve("UTC_COMPANY")));
     }
 
+    [Theory]
+    [InlineData("SESS_PVT_LTD")]
+    [InlineData("SESS_PROPRIETORSHIP")]
+    public void R1BusinessReportsCannotBeShiftedBackToUtcByAnOldCompanyOverride(string company)
+    {
+        var options = new ReportCalendarOptions();
+        options.CompanyTimeZones[company] = "UTC";
+        Assert.True(options.IsValid());
+        Assert.Equal(new DateOnly(2026, 10, 17), ReportCalendarOptions.DateInZone(
+            DateTimeOffset.Parse("2026-10-16T20:00:00Z"), options.Resolve(company)));
+        options.CompanyTimeZones[company] = "Not/AZone";
+        Assert.False(options.IsValid());
+    }
     [Fact]
     public void InvalidReportCalendarConfigurationIsRejected()
     {

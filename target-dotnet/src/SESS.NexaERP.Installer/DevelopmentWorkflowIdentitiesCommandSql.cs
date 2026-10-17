@@ -97,7 +97,7 @@ internal static class DevelopmentWorkflowIdentitiesCommandSql
           THEN RAISE EXCEPTION 'A development employee subject is already mapped to another employee.'; END IF;
 
           UPDATE advance.employee_identity_mappings mapping
-          SET "EffectiveTo"=current_date,
+          SET "EffectiveTo"=(CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Kolkata')::date,
               "IsActive"=false,
               "UpdatedAt"=clock_timestamp(),
               "UpdatedBy"='DEVELOPMENT_WORKFLOW_IDENTITIES',
@@ -113,7 +113,7 @@ internal static class DevelopmentWorkflowIdentitiesCommandSql
             ("Id","CompanyId","OrganizationId","Issuer","Subject","EmployeeId","IdentityType",
              "EffectiveFrom","EffectiveTo","IsActive","CreatedAt","CreatedBy","Version")
           SELECT gen_random_uuid(),company."Id",company."Code",issuer,employee."EmployeeCode",employee."Id",'HUMAN',
-                 current_date,NULL,true,clock_timestamp(),'DEVELOPMENT_WORKFLOW_IDENTITIES',0
+                 (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Kolkata')::date,NULL,true,clock_timestamp(),'DEVELOPMENT_WORKFLOW_IDENTITIES',0
           FROM advance.employees employee
           JOIN advance.employee_company_assignments assignment
             ON assignment."EmployeeId"=employee."Id" AND assignment."IsActive"
@@ -171,8 +171,8 @@ internal static class DevelopmentWorkflowIdentitiesCommandSql
               WHERE employee."EmployeeCode"=ANY(expected_codes)
                 AND mapping."Issuer"=issuer AND mapping."Subject"=employee."EmployeeCode"
                 AND mapping."IdentityType"='HUMAN' AND mapping."IsActive"
-                AND mapping."EffectiveFrom"<=current_date
-                AND (mapping."EffectiveTo" IS NULL OR mapping."EffectiveTo">=current_date))<>22 THEN
+                AND mapping."EffectiveFrom"<=(CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Kolkata')::date
+                AND (mapping."EffectiveTo" IS NULL OR mapping."EffectiveTo">=(CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Kolkata')::date))<>22 THEN
             RAISE EXCEPTION 'Development workflow identity verification did not find exactly 22 effective mappings.';
           END IF;
         END $provision$;

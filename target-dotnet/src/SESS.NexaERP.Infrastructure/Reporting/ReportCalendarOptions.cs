@@ -7,8 +7,10 @@ public sealed class ReportCalendarOptions
 
     internal TimeZoneInfo Resolve(string? company) =>
         TimeZoneInfo.FindSystemTimeZoneById(
-            company is not null && CompanyTimeZones.TryGetValue(company.Trim(),out var configured)
-                ? configured : DefaultTimeZone);
+            company?.Trim().ToUpperInvariant() is "SESS_PVT_LTD" or "SESS_PROPRIETORSHIP"
+                ? "Asia/Kolkata"
+                : company is not null && CompanyTimeZones.TryGetValue(company.Trim(),out var configured)
+                    ? configured : DefaultTimeZone);
 
     internal static string PostgreSqlName(TimeZoneInfo zone)
     {
@@ -28,7 +30,7 @@ public sealed class ReportCalendarOptions
         try
         {
             _=PostgreSqlName(Resolve(null));
-            foreach(var company in CompanyTimeZones.Keys) _=PostgreSqlName(Resolve(company));
+            foreach(var company in CompanyTimeZones.Keys) _=PostgreSqlName(TimeZoneInfo.FindSystemTimeZoneById(CompanyTimeZones[company]));
             return true;
         }
         catch(TimeZoneNotFoundException) { return false; }
