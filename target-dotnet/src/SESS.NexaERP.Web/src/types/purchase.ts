@@ -422,6 +422,10 @@ export interface ComparisonLine {
   /** Parent quotation of the line (returned by GET /comparisons/{number}). */
   VendorQuotationId: string
   VendorId?: string
+  /** Supplied only by the commercial comparison response, within its existing scope. */
+  QuotationNumber?: string
+  VendorCode?: string
+  VendorName?: string
   TechnicalComplianceSnapshot: string
   CommercialSnapshotJson?: string
   DeliverySnapshot: string

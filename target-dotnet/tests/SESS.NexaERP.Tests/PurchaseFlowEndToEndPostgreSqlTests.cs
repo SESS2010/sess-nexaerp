@@ -1042,6 +1042,15 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         if (workload is not null) await workload("COMPARISON_APPROVAL", comparison.Id);
 
         user.Set(managerId, "SESS-14", Rev869ARoleCodes.AccountsManager);
+        // F21: the assigned approver must name the compared vendors without a quotation-list grant.
+        var approverComparison = await Get<JsonElement>(client, $"/api/v1/purchase/comparisons/{comparison.Number}");
+        Assert.All(approverComparison.GetProperty("Lines").EnumerateArray(), line =>
+        {
+            Assert.False(string.IsNullOrWhiteSpace(line.GetProperty("QuotationNumber").GetString()));
+            Assert.False(string.IsNullOrWhiteSpace(line.GetProperty("VendorCode").GetString()));
+            Assert.False(string.IsNullOrWhiteSpace(line.GetProperty("VendorName").GetString()));
+            Assert.Contains(line.GetProperty("VendorId").GetGuid(), new[] { vendor1Id, vendor2Id });
+        });
         comparison = await Post<Rev869BDocumentResult>(client, $"/api/v1/purchase/comparisons/{comparison.Number}/approve",
             new Rev869BApprovalActionRequest("Level 1 comparison approval", comparison.Version, $"{band.Code}-comparison-approve-1"));
         if (band.Level2EmployeeId.HasValue)

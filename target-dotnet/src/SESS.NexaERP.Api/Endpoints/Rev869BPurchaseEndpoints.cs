@@ -135,15 +135,23 @@ public static partial class Rev869BPurchaseEndpoints
     }
     private static async Task<IResult> GetComparison(string number, NexaErpDbContext db, ICurrentUser user, IRecordScopeAuthorizer scopes, IPagePermissionService permissions, IAuditWriter audit, CancellationToken ct)
     {
-        var row = await ScopeComparisons(db.CommercialComparisons.AsNoTracking().Include(x => x.Lines).ThenInclude(x => x.VendorQuotationLine), db, user).SingleOrDefaultAsync(x => x.OrganizationId == user.OrganizationId && x.ComparisonNumber == number.Trim().ToUpper(), ct); if (row is null) return await Missing(audit, "purchase.commercial-comparisons", number, user, ct); var rfq = await db.RequestForQuotations.AsNoTracking().SingleOrDefaultAsync(x => x.Id == row.RequestForQuotationId && x.OrganizationId == row.OrganizationId, ct); if (rfq is null) return Results.Conflict(new { message = "Comparison RFQ parent contract is invalid." });
+        var row = await ScopeComparisons(db.CommercialComparisons.AsNoTracking().Include(x => x.Lines).ThenInclude(x => x.VendorQuotationLine)!.ThenInclude(x => x!.VendorQuotation), db, user).SingleOrDefaultAsync(x => x.OrganizationId == user.OrganizationId && x.ComparisonNumber == number.Trim().ToUpper(), ct); if (row is null) return await Missing(audit, "purchase.commercial-comparisons", number, user, ct); var rfq = await db.RequestForQuotations.AsNoTracking().SingleOrDefaultAsync(x => x.Id == row.RequestForQuotationId && x.OrganizationId == row.OrganizationId, ct); if (rfq is null) return Results.Conflict(new { message = "Comparison RFQ parent contract is invalid." });
         if (await permissions.HasPermissionAsync(user.RoleCodes, "purchase.commercial-comparisons", PagePermissionActions.ViewCommercialValues, ct))
+        {
+            // Only vendors belonging to this already-authorized comparison. No quotation-list grant is required.
+            var vendorIds = row.Lines.Select(x => x.VendorId).Distinct().ToArray();
+            var vendorLabels = await db.Vendors.AsNoTracking().Where(x => vendorIds.Contains(x.Id))
+                .Select(x => new { x.Id, x.VendorCode, x.Name }).ToDictionaryAsync(x => x.Id, ct);
             return Results.Ok(new { row.Id, row.ComparisonNumber, row.RequestForQuotationId, row.RecommendedVendorQuotationId,
                 row.SelectedVendorId, row.OwnerEmployeeId, row.CurrencyCode, row.TotalPayableValue, row.ApprovalRoute,
                 row.ApprovalCycle, row.RequiredApprovalStepCount, row.CompletedApprovalStepCount, row.CreatorEmployeeId,
                 row.Status, row.IsSingleSource, row.SingleSourceJustification, row.RecommendationRemarks, row.Version,
                 Lines = row.Lines.Select(x => new { x.Id, x.VendorQuotationLineId, VendorQuotationId = x.VendorQuotationLine!.VendorQuotationId,
-                    x.VendorId, x.TechnicalComplianceSnapshot, x.CommercialSnapshotJson, x.DeliverySnapshot, x.WarrantySnapshot,
+                    x.VendorId, QuotationNumber = x.VendorQuotationLine!.VendorQuotation!.QuotationNumber,
+                    VendorCode = vendorLabels.GetValueOrDefault(x.VendorId)?.VendorCode,
+                    VendorName = vendorLabels.GetValueOrDefault(x.VendorId)?.Name, x.TechnicalComplianceSnapshot, x.CommercialSnapshotJson, x.DeliverySnapshot, x.WarrantySnapshot,
                     x.PaymentTermsSnapshot, x.TotalPayableValue, x.IsRecommended, x.RecommendationReason, x.Version }) });
+        }
         await audit.WriteAsync("Security", "Denied", "CommercialValues", row.Id.ToString(), null, new { reason = "Commercial values masked", user.RoleCode }, ct);
         return Results.Ok(new { row.Id, row.ComparisonNumber, row.RequestForQuotationId, row.OwnerEmployeeId, row.CurrencyCode, row.Status, row.IsSingleSource, row.SingleSourceJustification, row.RecommendationRemarks, row.Version, Lines = row.Lines.Select(x => new { x.Id, x.VendorQuotationLineId, VendorQuotationId = x.VendorQuotationLine!.VendorQuotationId, x.TechnicalComplianceSnapshot, x.DeliverySnapshot, x.IsRecommended, x.RecommendationReason }) });
     }
