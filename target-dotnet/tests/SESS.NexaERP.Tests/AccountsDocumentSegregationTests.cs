@@ -60,6 +60,19 @@ public sealed class AccountsDocumentSegregationTests
         Assert.Throws<InvalidOperationException>(()=>AccountsDocumentSegregation.SelectIndependentValueReviewer(People,true,false,[],[People.Karthick,People.Md]));
     }
     [Fact]
+    public void AnyRetainedKarthickDutyRequiresIndependentMdThenIndependentTd()
+    {
+        foreach(var duty in Enum.GetValues<AccountsDocumentDuty>())
+        {
+            AccountsDocumentParticipation[] facts=[new(People.Karthick,duty)];
+            Assert.Equal(People.Md,AccountsDocumentSegregation.SelectIndependentValueReviewer(People,true,false,facts,[]));
+            Assert.Equal(People.Td,AccountsDocumentSegregation.SelectIndependentValueReviewer(People,true,true,facts,[]));
+            foreach(var tdDuty in Enum.GetValues<AccountsDocumentDuty>())
+                Assert.Throws<InvalidOperationException>(()=>AccountsDocumentSegregation.SelectIndependentValueReviewer(
+                    People,true,true,[..facts,new(People.Td,tdDuty)],[]));
+        }
+    }
+    [Fact]
     public void EmptyOrAliasedIdentityCannotSelectReviewer()
     {
         Assert.Throws<InvalidOperationException>(()=>AccountsDocumentSegregation.SelectIndependentValueReviewer(People with {Md=People.Karthick},true,false,[],[]));
