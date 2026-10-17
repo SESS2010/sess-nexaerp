@@ -26,7 +26,7 @@ public sealed class EfQcWorkflowService(NexaErpDbContext db, ICurrentUser user, 
             throw new StoresValidationException("page must be positive and pageSize must be 1-100.");
         var company = await Company(ct);
         var now = DateTimeOffset.UtcNow;
-        var today = DateOnly.FromDateTime(now.UtcDateTime);
+        var today = db.BusinessDate;
         var query = db.GoodsReceiptLineLotAllocations.AsNoTracking()
             .Where(a => a.CompanyId == company.Id && a.GoodsReceiptLine!.GoodsReceipt!.Status == "FINALIZED"
                 && (!db.QcInspections.Any(i => i.CompanyId == company.Id && i.GoodsReceiptLineLotAllocationId == a.Id)
@@ -60,7 +60,7 @@ public sealed class EfQcWorkflowService(NexaErpDbContext db, ICurrentUser user, 
                 && x.QcInspection!.GoodsReceiptLineLotAllocationId == allocation.Id)
                 .OrderByDescending(x => x.RevisionNumber)
                 .Select(x => new { x.Id, x.QcInspection!.InspectionNumber, x.DiscrepancyPendingQuantity }).FirstOrDefaultAsync(ct);
-            var age = Math.Max(0, today.DayNumber - DateOnly.FromDateTime(receipt.ReceivedAt.UtcDateTime).DayNumber);
+            var age = Math.Max(0, today.DayNumber - SESS.NexaERP.Application.Common.BusinessCalendar.DateAt(receipt.ReceivedAt).DayNumber);
             items.Add(new(allocation.Id, receipt.GrnNumber, line.Id, line.LineNumber, allocation.LotOrdinal,
                 line.ItemId, line.ItemCodeSnapshot, line.ItemNameSnapshot, allocation.InventoryLotId,
                 allocation.InventoryLot!.SupplierLotNumber, allocation.Quantity, serialIds, receipt.ReceivedAt,

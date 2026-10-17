@@ -190,8 +190,11 @@ public sealed class CompanyReportWorkbookTests
         var instant=DateTimeOffset.Parse(timestamp,System.Globalization.CultureInfo.InvariantCulture);
         Assert.Equal(new DateOnly(2026,9,expectedDay),
             ReportCalendarOptions.DateInZone(instant,options.Resolve("sess_pvt_ltd")));
-        Assert.Equal(new DateOnly(2026,9,12),
+        Assert.Equal(new DateOnly(2026,9,expectedDay),
             ReportCalendarOptions.DateInZone(instant,options.Resolve("OTHER_COMPANY")));
+        options.CompanyTimeZones.Add("UTC_COMPANY", "UTC");
+        Assert.Equal(new DateOnly(2026,9,12),
+            ReportCalendarOptions.DateInZone(instant,options.Resolve("UTC_COMPANY")));
     }
 
     [Fact]

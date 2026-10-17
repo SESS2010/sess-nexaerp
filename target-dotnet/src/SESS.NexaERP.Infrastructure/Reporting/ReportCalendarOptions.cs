@@ -2,7 +2,7 @@ namespace SESS.NexaERP.Infrastructure.Reporting;
 
 public sealed class ReportCalendarOptions
 {
-    public string DefaultTimeZone { get; set; } = "UTC";
+    public string DefaultTimeZone { get; set; } = "Asia/Kolkata";
     public Dictionary<string,string> CompanyTimeZones { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     internal TimeZoneInfo Resolve(string? company) =>

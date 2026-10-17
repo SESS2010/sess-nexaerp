@@ -32,7 +32,7 @@ public sealed partial class EfGateEntryService(NexaErpDbContext db,ICurrentUser 
         if(po.Status!=Rev869BStatuses.Issued)throw new StoresConflictException("Gate Entry requires a current issued Purchase Order.");
         await RequireScope(po.RequestingDepartmentId,po.DeliveryWarehouseId,po.OwnerEmployeeId,ct);
         var lines=BuildLines(request.Lines,po,company.Id);
-        var number=await NextNumber(company.Id,org,DateOnly.FromDateTime(request.ArrivedAt.UtcDateTime),ct);
+        var number=await NextNumber(company.Id,org,SESS.NexaERP.Application.Common.BusinessCalendar.DateAt(request.ArrivedAt),ct);
         var gate=new GateEntry{CompanyId=company.Id,GateEntryNumber=number,PurchaseOrderId=po.Id,VendorId=po.VendorId,VendorNameSnapshot=po.Vendor?.Name??throw new StoresConflictException("Purchase Order vendor is unavailable."),VendorDcNumber=request.VendorDcNumber.Trim(),VehicleNumber=Trim(request.VehicleNumber),ModeOfTransport=request.ModeOfTransport.Trim(),ArrivedAt=request.ArrivedAt,ReceivedByEmployeeId=actor,IsoReceiptVerificationJson=CanonicalObject(request.IsoReceiptVerificationJson),IdempotencyKey=key,RequestFingerprint=fingerprint,CreatedBy=user.LoginId,Lines=lines};
         db.GateEntries.Add(gate); AddHistory(gate,null,"DRAFT","CREATED",Hash($"GATE:CREATED:{gate.Id}"));
         await db.SaveChangesAsync(ct);
