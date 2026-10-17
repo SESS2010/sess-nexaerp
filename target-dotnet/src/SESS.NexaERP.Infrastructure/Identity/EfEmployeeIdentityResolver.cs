@@ -55,6 +55,14 @@ public sealed class EfEmployeeIdentityResolver(NexaErpDbContext db) : IEmployeeI
             .Where(x => db.CompanyRoleActivations.Any(ca => ca.CompanyId == companyId && ca.RoleId == x.RoleId &&
                 ca.IsEnabled && ca.EffectiveFrom <= onDate && (!ca.EffectiveTo.HasValue || ca.EffectiveTo.Value >= onDate)))
             .Select(x => new { x.Id, Code = x.Role!.Code, x.AssignmentType }).ToListAsync(ct);
+        // A revoked/expired requester role must not fall through to the legacy universal
+        // employee item-master exemption. Other still-effective business roles remain unchanged.
+        if (roles.Count == 0 && await db.EmployeeRoleAssignments.AsNoTracking().AnyAsync(x =>
+                x.EmployeeId == employee.Id && x.CompanyId == companyId && x.Role != null &&
+                (x.Role.Code == MirRequesterPolicy.Role || x.Role.Code == MirRequesterPolicy.ApproverRole), ct))
+            return new(false, employee.Id, primaryDepartments[0], organization, employee.EmployeeCode, [],
+                "The MIR requester assignment is not currently effective.");
+
         var assignments = roles.Select(x => new EffectiveRoleAssignment(x.Id, x.Code.Trim().ToUpperInvariant(),
             x.AssignmentType.Trim().ToUpperInvariant())).OrderBy(x => x.RoleCode, StringComparer.Ordinal).ThenBy(x => x.AssignmentId).ToArray();
         var roleCodes = assignments.Select(x => x.RoleCode).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();

@@ -194,13 +194,18 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         public string? OrganizationId => CurrentOrganizationId;
         public string CurrentOrganizationId { get; private set; } = "SESS_PVT_LTD";
         public bool IsAuthenticated => true;
-        public string? IdentityIssuer => "https://issuer.purchase-flow.test";
+        public string? IdentityIssuer => CurrentIssuer;
+        public string CurrentIssuer {get;private set;} = "https://issuer.purchase-flow.test";
+        public Guid? DepartmentId {get;private set;}
+        public void SetIdentityContext(string issuer,Guid department){CurrentIssuer=issuer;DepartmentId=department;}
         public string? IdentitySubject => LoginId;
         public Guid? EmployeeId => CurrentEmployeeId;
         public TaxWorkflowUser ForRequest() => new(CurrentEmployeeId, LoginId, "none", knownAssignments)
         {
             assignments = assignments.ToArray(),
-            CurrentOrganizationId = CurrentOrganizationId
+            CurrentOrganizationId = CurrentOrganizationId,
+            CurrentIssuer = CurrentIssuer,
+            DepartmentId = DepartmentId
         };
         public void SetResolvedRoleAuthority(ResolvedRoleAuthority value)
         {

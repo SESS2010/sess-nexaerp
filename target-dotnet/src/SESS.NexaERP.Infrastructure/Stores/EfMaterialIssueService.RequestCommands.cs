@@ -24,6 +24,8 @@ public sealed partial class EfMaterialIssueService
             x => x.CompanyId == company.Id && x.IdempotencyKey == key, ct);
         if (replay is not null)
         {
+            if (!MirRequesterPolicy.IsOwn(user, replay.RequestedByEmployeeId))
+                throw new StoresConflictException("Idempotency key is not owned by this requester.");
             if (replay.RequestFingerprint != hash)
                 throw new StoresConflictException("Idempotency key was reused with different MIR content.");
             await tx.CommitAsync(ct);
@@ -58,6 +60,8 @@ public sealed partial class EfMaterialIssueService
             x => x.CompanyId == company.Id && x.Id == id, ct)
             ?? throw new KeyNotFoundException("MIR was not found.");
         if (request.Status != "DRAFT") throw new StoresConflictException("Only a Draft MIR can be edited.");
+        if (MirRequesterPolicy.IsRequesterOnly(user) && !MirRequesterPolicy.IsOwn(user, request.RequestedByEmployeeId))
+            throw new KeyNotFoundException("MIR was not found.");
         if (request.Version != command.Version) throw new DbUpdateConcurrencyException("MIR Version is stale.");
         if (request.RequestedByEmployeeId != Actor())
             throw new UnauthorizedAccessException("Only the MIR creator may edit its Draft.");
@@ -86,13 +90,13 @@ public sealed partial class EfMaterialIssueService
 
     public Task<MaterialIssueRequestView> ApproveAsync(Guid id, MaterialIssueTransitionRequest request, CancellationToken ct)
     {
-        _ = user.RequireRole("approve", "STORES_MANAGER", "PRODUCTION_MANAGER");
+        _ = user.RequireRole("approve", "STORES_MANAGER", "PRODUCTION_MANAGER", MirRequesterPolicy.ApproverRole);
         return TransitionAsync(id, request, "SUBMITTED", "APPROVED", "APPROVE", "MaterialIssueRequest.Approve", true, ct);
     }
 
     public Task<MaterialIssueRequestView> RejectAsync(Guid id, MaterialIssueTransitionRequest request, CancellationToken ct)
     {
-        _ = user.RequireRole("reject", "STORES_MANAGER", "PRODUCTION_MANAGER");
+        _ = user.RequireRole("reject", "STORES_MANAGER", "PRODUCTION_MANAGER", MirRequesterPolicy.ApproverRole);
         return TransitionAsync(id, request, "SUBMITTED", "REJECTED", "REJECT", "MaterialIssueRequest.Reject", true, ct);
     }
 
@@ -168,6 +172,8 @@ public sealed partial class EfMaterialIssueService
         var request = await RequestQuery(true).SingleOrDefaultAsync(
             x => x.CompanyId == company.Id && x.Id == id, ct)
             ?? throw new KeyNotFoundException("MIR was not found.");
+        if (MirRequesterPolicy.IsRequesterOnly(user) && !MirRequesterPolicy.IsOwn(user, request.RequestedByEmployeeId))
+            throw new KeyNotFoundException("MIR was not found.");
         if (request.Version != command.Version) throw new DbUpdateConcurrencyException("MIR Version is stale.");
         if (expected is not null && request.Status != expected)
             throw new StoresConflictException($"MIR must be {expected} for {action.ToLowerInvariant()}.");
