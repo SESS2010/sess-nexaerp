@@ -6,15 +6,16 @@
 // There is deliberately no fallback from a failed live request to a mock: a
 // dashboard must never show invented figures because the server was down.
 //
-// Known gaps, to close at the 28 September rebase onto feature/frontend:
-// - api.get cannot send headers, so live calls do NOT yet send the required
-//   X-NexaERP-Company header. Add it (value: getCompanyCode()) once the shared
-//   client supports per-call headers. client.ts is not changed before then.
+// The X-NexaERP-Company header is added by the shared client (authorizedFetch)
+// from the company selected at sign-in; getCompanyCode() reads the same value.
+//
+// Known gap:
 // - ApiError keeps only message, Code and TraceId. It drops the problem
 //   fields Type, Title and the Errors object, and the 409 obligations field
 //   AdministratorActionRequired. The dashboards recognise the 409 by
 //   Code=DASHBOARD_SOURCE_INCONSISTENT, so nothing here depends on them yet.
 
+import { getCompany } from '../auth/authSession'
 import { api } from './client'
 import type {
   PurchaseObligationsPage,
@@ -32,15 +33,15 @@ import type {
 } from '../types/dashboard'
 
 /**
- * TEMPORARY — replaced at the 28 September rebase, when the login work adds
- * the selected company to the shared login context. This is the ONLY place a
- * company code appears in the dashboards. Until then it is fixed, so
- * SESS_PROPRIETORSHIP data can never be shown; test both companies after the
- * rebase. (SessionMe.OrganizationId appears to carry this code already;
- * confirm with the login work before wiring it.)
+ * The company the dashboards expect in every response: the one selected at
+ * sign-in, which is also the X-NexaERP-Company header the client sends. It
+ * used to be fixed to SESS_PVT_LTD, so a SESS_PROPRIETORSHIP session had every
+ * section discarded as "belongs to a different company". A company switch
+ * remounts the workspace (selectCompany), so readers need no subscription.
+ * The fallback only serves mock builds, whose bodies are SESS_PVT_LTD.
  */
 export function getCompanyCode(): string {
-  return 'SESS_PVT_LTD'
+  return getCompany() ?? 'SESS_PVT_LTD'
 }
 
 export const DASHBOARD_MOCKS_ENABLED = import.meta.env.VITE_DASHBOARD_MOCKS === 'true'
