@@ -42529,7 +42529,7 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                             MinorUnitDigits = 2,
                             Name = "Indian Rupee",
                             NumericCode = "356",
-                            Symbol = "â‚¹",
+                            Symbol = "₹",
                             Version = 0L
                         });
                 });
