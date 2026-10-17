@@ -7,8 +7,8 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations;
 [Migration("20261017100000_KolkataCurrentBusinessDates")]
 public sealed class KolkataCurrentBusinessDates : Migration
 {
-    internal const string KolkataUpper = "(CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Kolkata')::date";
-    internal const string KolkataLower = "(current_timestamp AT TIME ZONE 'Asia/Kolkata')::date";
+    internal const string KolkataUpper = "advance.CURRENT_BUSINESS_DATE()";
+    internal const string KolkataLower = "advance.current_business_date()";
     // Exact installed baseline-151 contracts, not a global search/replace and not historical event conversions.
     private static readonly (string Signature, int Upper, int Lower)[] Functions =
     [
@@ -66,16 +66,34 @@ public sealed class KolkataCurrentBusinessDates : Migration
         ("advance.vendor_financial_command_valid(uuid,uuid,text,uuid,text,text)", 2, 0),
     ];
 
+    private static readonly (string Signature, int Count)[] StatementFunctions =
+    [
+        ("advance.ordinary_guard_qualification_lifecycle()", 10),
+        ("advance.rev869b_guard_history_insert()", 4),
+        ("advance.tax_gst_guard_controlled_mutation()", 4),
+    ];
+
     protected override void Up(MigrationBuilder migrationBuilder)
     {
         PostgreSqlClusterGuard.Require(migrationBuilder);
+        migrationBuilder.Sql(MigrationText.Lf("""
+            CREATE FUNCTION advance.current_business_date() RETURNS date
+            LANGUAGE sql STABLE SECURITY INVOKER SET search_path=pg_catalog,advance
+            AS $clock$ SELECT (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Kolkata')::date $clock$;
+            REVOKE ALL ON FUNCTION advance.current_business_date() FROM PUBLIC;
+            DO $grant$ BEGIN
+              IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='nexa_erp_runtime') THEN
+                GRANT EXECUTE ON FUNCTION advance.current_business_date() TO nexa_erp_runtime;
+              END IF;
+            END $grant$;
+            """));
         Rewrite(migrationBuilder, false);
     }
 
     protected override void Down(MigrationBuilder migrationBuilder)
     {
         PostgreSqlClusterGuard.Require(migrationBuilder);
-        migrationBuilder.Sql("""
+        migrationBuilder.Sql(MigrationText.Lf("""
             DO $guard$ BEGIN
               LOCK TABLE advance.purchase_requisitions,advance.request_for_quotations,
                 advance.material_issue_requests,advance.opening_stocks,advance.stock_movements,
@@ -89,8 +107,9 @@ public sealed class KolkataCurrentBusinessDates : Migration
                 RAISE EXCEPTION 'Kolkata business date rollback refuses retained business evidence; keep the forward migration.';
               END IF;
             END $guard$;
-            """);
+            """));
         Rewrite(migrationBuilder, true);
+        migrationBuilder.Sql("DROP FUNCTION advance.current_business_date();");
     }
 
     private static void Rewrite(MigrationBuilder builder, bool down)
@@ -102,5 +121,9 @@ public sealed class KolkataCurrentBusinessDates : Migration
             if (lower > 0) changes.Add(down ? (KolkataLower, "current_date", lower) : ("current_date", KolkataLower, lower));
             builder.Sql(InstalledFunctionSql.Rewrite(signature, true, changes.ToArray()));
         }
+        foreach (var (signature, count) in StatementFunctions)
+            builder.Sql(InstalledFunctionSql.Rewrite(signature, true, down
+                ? (KolkataLower, "statement_timestamp()::date", count)
+                : ("statement_timestamp()::date", KolkataLower, count)));
     }
 }

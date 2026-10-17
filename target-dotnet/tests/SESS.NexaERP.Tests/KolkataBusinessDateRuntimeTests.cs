@@ -61,16 +61,37 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         const string noSessionDate = """
             DO $assert$ BEGIN
               IF EXISTS(SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
-                WHERE n.nspname='advance' AND p.prokind='f' AND p.prosrc ~* '\mcurrent_date\M') THEN
+                WHERE n.nspname='advance' AND p.prokind='f' AND (p.prosrc ~* '\mcurrent_date\M' OR p.prosrc LIKE '%statement_timestamp()::date%')) THEN
                 RAISE EXCEPTION 'Installed function still derives its business date from session timezone';
               END IF;
               IF EXISTS(SELECT 1 FROM public.kolkata_function_baseline b JOIN pg_proc p ON p.oid=b.oid
-                WHERE b.definition !~* '\mcurrent_date\M' AND pg_get_functiondef(p.oid)<>b.definition) THEN
+                WHERE b.definition !~* '\mcurrent_date\M' AND b.definition NOT LIKE '%statement_timestamp()::date%' AND pg_get_functiondef(p.oid)<>b.definition) THEN
                 RAISE EXCEPTION 'Date migration changed an unrelated or historical conversion';
               END IF;
             END $assert$;
             """;
         server.Execute("kolkata-contracts.sql", unchangedAuthority + noSessionDate);
+        server.Execute("kolkata-clock-contract.sql", """
+            DO $assert$ DECLARE original_day date; BEGIN
+              IF NOT EXISTS(SELECT 1 FROM pg_proc p WHERE p.oid='advance.current_business_date()'::regprocedure
+                  AND NOT p.prosecdef AND p.provolatile='s'
+                  AND p.prosrc NOT LIKE '%current_setting%'
+                  AND NOT EXISTS(SELECT 1 FROM aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a
+                    WHERE a.grantee=0 AND a.privilege_type='EXECUTE')) THEN
+                RAISE EXCEPTION 'Clock must be read-only, stable, have no caller date override and no public execute grant';
+              END IF;
+              PERFORM set_config('TimeZone','UTC',true);
+              original_day:=advance.current_business_date();
+              IF original_day<>(CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Kolkata')::date THEN
+                RAISE EXCEPTION 'Database and Kolkata calendar disagree';
+              END IF;
+              PERFORM set_config('TimeZone','Pacific/Honolulu',true);
+              PERFORM set_config('advance.business_date','1900-01-01',true);
+              IF advance.current_business_date()<>original_day THEN
+                RAISE EXCEPTION 'Caller timezone/date setting changed the business clock';
+              END IF;
+            END $assert$;
+            """);
         server.Execute("kolkata-down.sql", migrator.GenerateScript(head, baseline));
         server.Execute("kolkata-restored.sql", unchangedAuthority + """
             DO $assert$ BEGIN
