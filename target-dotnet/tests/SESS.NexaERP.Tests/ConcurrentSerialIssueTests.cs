@@ -78,7 +78,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         await using var db = new NexaErpDbContext(context.Options);
         await using var observer = new NpgsqlConnection(db.Database.GetConnectionString());
         await observer.OpenAsync();
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var today = db.BusinessDate;
         var year = today.Month >= 4 ? $"{today.Year % 100:00}-{(today.Year + 1) % 100:00}"
             : $"{(today.Year - 1) % 100:00}-{today.Year % 100:00}";
         var gateKey = $"NUMBER:SESS_PVT_LTD:{year}:MI";
