@@ -158,6 +158,27 @@ public sealed class EfQcWorkflowService(NexaErpDbContext db, ICurrentUser user, 
         await tx.CommitAsync(ct);return await LoadConcession(reversal.Id,company.Id,false,ct);
     }
 
+    public async Task<PagedResponse<InventoryConcessionListItem>> ListConcessionsAsync(string? status, int page, int pageSize, CancellationToken ct)
+    {
+        _ = user.RequireRole("qc-read", "QC_MANAGER", "TECHNICAL_DIRECTOR", "MANAGING_DIRECTOR");
+        if (page < 1 || pageSize is < 1 or > 100)
+            throw new StoresValidationException("page must be positive and pageSize must be 1-100.");
+        var company = await Company(ct);
+        var query = db.InventoryConcessions.AsNoTracking().Where(x => x.CompanyId == company.Id);
+        if (!string.IsNullOrWhiteSpace(status))
+        {
+            var value = status.Trim().ToUpperInvariant();
+            if (value is not ("DRAFT" or "APPROVED" or "REJECTED" or "REVERSED"))
+                throw new StoresValidationException("Unknown concession status.");
+            query = query.Where(x => x.Status == value);
+        }
+        var count = await query.CountAsync(ct);
+        var items = await query.OrderByDescending(x => x.CreatedAt).ThenByDescending(x => x.Id)
+            .Skip((page - 1) * pageSize).Take(pageSize)
+            .Select(x => new InventoryConcessionListItem(x.Id, x.ConcessionNumber, x.Status, x.RequestedQuantity, x.CreatedAt)).ToListAsync(ct);
+        return new(count, page, pageSize, items);
+    }
+
     public async Task<InventoryConcessionResult?> GetConcessionAsync(string number,CancellationToken ct){var company=await Company(ct);var x=await ConcessionQuery().SingleOrDefaultAsync(c=>c.CompanyId==company.Id&&c.ConcessionNumber==number.Trim().ToUpperInvariant(),ct);return x is null?null:await MapConcession(x,false,ct);}
 
     private async Task AddParameterResults(QcInspectionRevision revision,GoodsReceiptLine line,IReadOnlyList<QcParameterResultRequest> input,Guid actor,DateOnly on,CancellationToken ct)

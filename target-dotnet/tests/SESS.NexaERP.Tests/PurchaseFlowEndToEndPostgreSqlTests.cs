@@ -1218,9 +1218,16 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         {
             if(correctionWitness is not null) result=await correctionWitness(result,request);
             var failed=Assert.Single(result.ParameterResults);var concessionSerialId=Assert.Single(result.SerialDispositions).InventorySerialId;var draft=await Post<InventoryConcessionResult>(client,"/api/v1/qc/concessions",new CreateInventoryConcessionRequest(result.QcInspectionLotDispositionId,failed.Id,1,"DIMENSIONAL_LIMIT",failed.MeasuredValue,"Technical Director accepts measured deviation for controlled non-critical use","Controlled internal test fixture",[concessionSerialId]),"MD-concession-create");Assert.Equal("DRAFT",draft.Status);Assert.Equal(concessionSerialId,Assert.Single(draft.InventorySerialIds));
-            user.Set(tdId,"SESS-01",Rev869ARoleCodes.TechnicalDirector);var approved=concessionWitness is null
+            user.Set(tdId,"SESS-01",Rev869ARoleCodes.TechnicalDirector);
+            var concessionQueue = await Get<PagedResponse<InventoryConcessionListItem>>(client,"/api/v1/qc/concessions?status=DRAFT&page=1&pageSize=25");
+            Assert.Contains(concessionQueue.Items, x => x.Id == draft.Id && x.ConcessionNumber == draft.ConcessionNumber && x.Quantity == draft.Quantity);
+            using (var invalidPage = await client.GetAsync("/api/v1/qc/concessions?page=0")) Assert.Equal(HttpStatusCode.BadRequest, invalidPage.StatusCode);
+            using (var invalidStatus = await client.GetAsync("/api/v1/qc/concessions?status=UNKNOWN")) Assert.Equal(HttpStatusCode.BadRequest, invalidStatus.StatusCode);
+            var approved=concessionWitness is null
                 ? await Post<InventoryConcessionResult>(client,$"/api/v1/qc/concessions/{draft.ConcessionNumber}/approve",new ApproveInventoryConcessionRequest(draft.Version,available,"Direct technical acceptance"),"MD-concession-approve")
                 : await concessionWitness(result,request,draft,available);Assert.Equal("APPROVED",approved.Status);Assert.NotNull(approved.StockPostingBatchId);Assert.Contains("DIMENSIONAL_LIMIT",approved.ProvenanceAnnotationJson);Assert.Contains(tdId.ToString(),approved.ProvenanceAnnotationJson);
+            Assert.DoesNotContain((await Get<PagedResponse<InventoryConcessionListItem>>(client,"/api/v1/qc/concessions?status=DRAFT")).Items, x => x.Id == approved.Id);
+            Assert.Contains((await Get<PagedResponse<InventoryConcessionListItem>>(client,"/api/v1/qc/concessions?status=APPROVED")).Items, x => x.Id == approved.Id);
             Assert.Equal(result.RevisionId,approved.QcInspectionRevisionId);
             Assert.Equal(failed.MeasuredValue,approved.MeasuredValue);
             using(var annotation=JsonDocument.Parse(approved.ProvenanceAnnotationJson!))

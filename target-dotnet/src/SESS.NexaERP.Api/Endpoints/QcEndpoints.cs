@@ -18,6 +18,7 @@ public static class QcEndpoints
         g.MapPost("/concessions/{number}/approve",async(string number,ApproveInventoryConcessionRequest r,IQcWorkflowService s,HttpContext h,CancellationToken ct)=>await Run(()=>s.ApproveConcessionAsync(number,r,HeaderKey(h),ct),h)).RequirePagePermission(Page,PagePermissionActions.Approve);
         g.MapPost("/concessions/{number}/reject",async(string number,RejectInventoryConcessionRequest r,IQcWorkflowService s,HttpContext h,CancellationToken ct)=>await Run(()=>s.RejectConcessionAsync(number,r,ct),h)).RequirePagePermission(Page,PagePermissionActions.Approve);
         g.MapPost("/concessions/{number}/reverse",async(string number,ReverseInventoryConcessionRequest r,IQcWorkflowService s,HttpContext h,CancellationToken ct)=>await Run(()=>s.ReverseConcessionAsync(number,r,HeaderKey(h),ct),h)).RequirePagePermission(Page,PagePermissionActions.Cancel);
+        g.MapGet("/concessions",async(string? status,int? page,int? pageSize,IQcWorkflowService s,HttpContext h,CancellationToken ct)=>await Run(()=>s.ListConcessionsAsync(status,page??1,pageSize??25,ct),h)).RequirePagePermission(Page,PagePermissionActions.View);
         g.MapGet("/concessions/{number}",async(string number,IQcWorkflowService s,HttpContext h,CancellationToken ct)=>await Run(async()=>await s.GetConcessionAsync(number,ct)??throw new KeyNotFoundException("Inventory concession was not found."),h)).RequirePagePermission(Page,PagePermissionActions.View);
         return endpoints;
     }

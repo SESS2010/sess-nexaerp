@@ -123,6 +123,8 @@ public sealed record InventoryConcessionResult(
     uint Version,
     bool Replayed);
 
+public sealed record InventoryConcessionListItem(Guid Id, string ConcessionNumber, string Status, decimal Quantity, DateTimeOffset CreatedAt);
+
 public interface IQcWorkflowService
 {
     Task<PagedResponse<QcQueueItem>> QueueAsync(Guid? allocationId, string? grnNumber, bool overdueOnly, int page, int pageSize, CancellationToken cancellationToken);
@@ -133,5 +135,6 @@ public interface IQcWorkflowService
     Task<InventoryConcessionResult> ApproveConcessionAsync(string concessionNumber, ApproveInventoryConcessionRequest request, string idempotencyKey, CancellationToken cancellationToken);
     Task<InventoryConcessionResult> RejectConcessionAsync(string concessionNumber, RejectInventoryConcessionRequest request, CancellationToken cancellationToken);
     Task<InventoryConcessionResult> ReverseConcessionAsync(string concessionNumber, ReverseInventoryConcessionRequest request, string idempotencyKey, CancellationToken cancellationToken);
+    Task<PagedResponse<InventoryConcessionListItem>> ListConcessionsAsync(string? status, int page, int pageSize, CancellationToken cancellationToken);
     Task<InventoryConcessionResult?> GetConcessionAsync(string concessionNumber, CancellationToken cancellationToken);
 }
