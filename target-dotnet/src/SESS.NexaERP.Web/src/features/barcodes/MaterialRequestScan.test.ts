@@ -1,3 +1,4 @@
+import * as businessCalendar from '../../utils/businessDate.ts'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
@@ -8,6 +9,7 @@ test('actual MIR form counts base-unit scans, rejects unknown/ambiguous or conve
   const states: any[] = [], refs: any[] = [], effects: (() => void)[] = []; let stateIndex = 0, refIndex = 0, mounted = false
   const writes: any[] = [], jsx = (type: unknown, props: any) => ({ type, props })
   const deps: Record<string, unknown> = {
+    '../../utils/businessDate': businessCalendar,
     react: { useState: (initial: any) => { const i = stateIndex++; if (!(i in states)) states[i] = typeof initial === 'function' ? initial() : initial; return [states[i], (value: any) => { states[i] = typeof value === 'function' ? value(states[i]) : value }] },
       useRef: (initial: unknown) => { const i = refIndex++; return refs[i] ?? (refs[i] = { current: initial }) }, useEffect: (fn: () => void) => { if (!mounted) effects.push(fn) }, useMemo: (fn: () => unknown) => fn() },
     'react/jsx-runtime': { jsx, jsxs: jsx }, '../../auth/authSession': { getCompany: () => 'SESS_PVT_LTD' },

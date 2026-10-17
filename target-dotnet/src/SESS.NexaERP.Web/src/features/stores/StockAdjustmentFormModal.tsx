@@ -12,7 +12,7 @@ import {
   formatRupees,
   listStockAdjustmentPeriods,
   reviseStockAdjustment,
-  serverTodayUtc,
+  businessToday,
   stockAdjustmentRefusedDefinitively,
 } from '../../api/stockAdjustments'
 import type { ItemSummary } from '../../types/item'
@@ -191,7 +191,7 @@ export function StockAdjustmentFormModal({ mode, existing, reverseOf, onClose, o
   const locationById = useMemo(() => new Map(locations.map((location) => [location.Id, location])), [locations])
 
   const period = periods.find((candidate) => candidate.Id === periodId)
-  const today = serverTodayUtc()
+  const today = businessToday()
   const maxDate = period ? (period.EndDate < today ? period.EndDate : today) : today
   const daysBack = effectiveDate ? daysBetween(effectiveDate, today) : 0
   const backdated = daysBack > 0
