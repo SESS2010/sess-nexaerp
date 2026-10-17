@@ -35,7 +35,7 @@ public sealed partial class EfProductionEngineeringService
 
     private async Task<string> NextNumberAsync(Guid companyId, string company, string prefix, CancellationToken ct)
     {
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var today = db.BusinessDate;
         var year = today.Month >= 4 ? $"{today.Year % 100:00}-{(today.Year + 1) % 100:00}"
             : $"{(today.Year - 1) % 100:00}-{today.Year % 100:00}";
         var lockKey = $"NUMBER:{company}:{year}:{prefix}";

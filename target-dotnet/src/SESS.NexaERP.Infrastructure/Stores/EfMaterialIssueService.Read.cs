@@ -75,7 +75,7 @@ public sealed partial class EfMaterialIssueService
         CancellationToken ct)
     {
         var company = await CompanyAsync(ct);
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var today = db.BusinessDate;
         return await db.Employees.AsNoTracking()
             .Where(employee => employee.Status == "Active"
                 && db.EmployeeRoleAssignments.Any(x => x.CompanyId == company.Id

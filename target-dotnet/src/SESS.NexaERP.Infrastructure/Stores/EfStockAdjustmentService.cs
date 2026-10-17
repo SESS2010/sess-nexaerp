@@ -136,7 +136,7 @@ public sealed partial class EfStockAdjustmentService(
         var period = await db.FinancialPeriods.AsNoTracking().SingleOrDefaultAsync(x =>
             x.CompanyId == company.Id && x.Id == request.InventoryPeriodId && x.PeriodType == "INVENTORY" && x.IsActive, ct)
             ?? throw new StoresValidationException("InventoryPeriodId is not an inventory period of the selected company.");
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var today = db.BusinessDate;
         var dating = StockAdjustmentPostingDatePolicy.Resolve(request.EffectiveDate, today, period.StartDate, period.EndDate,
             period.Status != "OPEN", request.BackdateReason, request.BackdateEvidenceId);
         foreach (var counter in counters)
@@ -190,7 +190,7 @@ public sealed partial class EfStockAdjustmentService(
             throw new StoresConflictException("Only a draft, submitted or rejected adjustment can be revised.");
         var lines = ValidateLines(request.Lines, adjustment.ReasonKind);
         var period = await db.FinancialPeriods.AsNoTracking().SingleAsync(x => x.Id == adjustment.InventoryPeriodId, ct);
-        var dating = StockAdjustmentPostingDatePolicy.Resolve(adjustment.EffectiveDate, DateOnly.FromDateTime(DateTime.UtcNow),
+        var dating = StockAdjustmentPostingDatePolicy.Resolve(adjustment.EffectiveDate, db.BusinessDate,
             period.StartDate, period.EndDate, period.Status != "OPEN", request.BackdateReason, request.BackdateEvidenceId);
         if (adjustment.ReversesStockAdjustmentId.HasValue)
             await RequireReversibleAsync(company.Id, adjustment.ReversesStockAdjustmentId.Value, lines, ct);

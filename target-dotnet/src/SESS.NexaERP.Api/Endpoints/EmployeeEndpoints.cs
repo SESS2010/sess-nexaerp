@@ -156,7 +156,7 @@ public static partial class EmployeeEndpoints
             db.Employees.Add(employee);
             db.EmployeeSkills.Add(new EmployeeSkill { EmployeeId = employee.Id, SkillId = masters.Value.Skill.Id, CreatedBy = currentUser.LoginId });
             db.EmployeeApprovalHistories.Add(new EmployeeApprovalHistory { EmployeeId = employee.Id, Action = "Create", FromStatus = "None", ToStatus = "Draft", Remarks = request.Remarks.Trim(), CreatedBy = currentUser.LoginId });
-            var assignmentStart = request.DateOfJoining ?? DateOnly.FromDateTime(DateTime.UtcNow);
+            var assignmentStart = request.DateOfJoining ?? db.BusinessDate;
             var companyAssignment = new EmployeeCompanyAssignment
             {
                 CompanyId = company.Id, EmployeeId = employee.Id, AssignmentType = "PAYROLL",

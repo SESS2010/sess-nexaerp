@@ -216,7 +216,7 @@ public sealed partial class EfRev869BPurchaseService : IRev869BPurchaseService
     private async Task RequireScopeAsync(Guid actor, string organization, Guid? department, Guid? warehouse, Guid? rackBin, Guid? owner, CancellationToken ct)
     {
         var actingRole = CurrentActorRole();
-        var decision = await scopes.AuthorizeAsync(actor, actingRole, new RecordScopeTarget(organization, department, warehouse, rackBin, owner), DateOnly.FromDateTime(DateTime.UtcNow), ct);
+        var decision = await scopes.AuthorizeAsync(actor, actingRole, new RecordScopeTarget(organization, department, warehouse, rackBin, owner), db.BusinessDate, ct);
         if (!decision.Allowed) { await WriteAuditAsync("Security", "Denied", "REV869BRecordScope", organization, null, new { decision.Reason, department, warehouse }, ct); throw new UnauthorizedAccessException(decision.Reason); }
     }
 

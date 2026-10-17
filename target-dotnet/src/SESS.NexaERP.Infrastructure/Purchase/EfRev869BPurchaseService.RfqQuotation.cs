@@ -56,7 +56,7 @@ public sealed partial class EfRev869BPurchaseService
             var sourced = await db.RequestForQuotationLines.Where(x => x.PurchaseRequirementHandoffId == h.Id && x.RequestForQuotation!.Status != Rev869BStatuses.Cancelled).SumAsync(x => (decimal?)x.RfqQuantity, ct) ?? 0m;
             if (quantities[h.Id] <= 0 || sourced + quantities[h.Id] > h.HandoffQuantity) throw new InvalidOperationException("RFQ split exceeds approved handoff quantity.");
         }
-        var today = DateOnly.FromDateTime(DateTime.UtcNow); var next = await NextNumberAsync(organization, "RFQ", today, ct);
+        var today = db.BusinessDate; var next = await NextNumberAsync(organization, "RFQ", today, ct);
         var rfq = new RequestForQuotation { OrganizationId = organization, RfqNumber = next.Number, FinancialYear = next.Year, SequenceNumber = next.Sequence, PurchaseRequisitionId = pr.Id, RequestingDepartmentId = pr.RequestingDepartmentId, DeliveryWarehouseId = pr.DeliveryWarehouseId, OwnerEmployeeId = actor, QuoteDueAt = request.QuoteDueAt, CurrencyCode = currency, IsSingleSource = request.IsSingleSource, SingleSourceJustification = Trim(request.SingleSourceJustification), IdempotencyKey = fingerprint, TransitionCorrelationId = fingerprint, CreatedBy = user.LoginId };
         rfq.CompanyId = pr.CompanyId;
         var lineNo = 0;
@@ -93,7 +93,7 @@ public sealed partial class EfRev869BPurchaseService
             await tx.RollbackAsync(ct); return Result(duplicate.Id, rfq.RfqNumber, Rev869BStatuses.Issued, 0);
         }
         if (rfq.Status is Rev869BStatuses.Cancelled or Rev869BStatuses.Closed) throw new Rev869BConflictException("RFQ is closed.");
-        var qualificationDate = DateOnly.FromDateTime(DateTime.UtcNow);
+        var qualificationDate = db.BusinessDate;
         var categories = rfq.Lines.Select(x => x.Item!.CategoryId).Distinct().Order().ToArray();
         foreach (var category in categories) if (!await vendors.IsEligibleAsync(request.VendorId, rfq.OrganizationId, category, qualificationDate, ct)) throw new InvalidOperationException("Vendor is not active, approved, effective and qualified.");
         var qualifications = await db.VendorQualifications.AsNoTracking()
@@ -266,7 +266,7 @@ public sealed partial class EfRev869BPurchaseService
             ?? throw new Rev869BNotFoundException("Quotation line was not found in the current organization/quotation.");
         var quote = line.VendorQuotation!; var rfq = quote.RfqVendorInvitation!.RequestForQuotation!;
         if (!await SESS.NexaERP.Infrastructure.Authorization.QuotationTechnicalScope
-            .AccessibleRfqs(db, user, DateOnly.FromDateTime(DateTime.UtcNow)).AnyAsync(x => x.Id == rfq.Id, ct))
+            .AccessibleRfqs(db, user, db.BusinessDate).AnyAsync(x => x.Id == rfq.Id, ct))
         {
             const string reason = "Technical verifier requires active company and department assignments intersecting an active operational scope.";
             await WriteAuditAsync("Security", "Denied", "QuotationTechnicalScope", quote.QuotationNumber, null,

@@ -26,7 +26,7 @@ public sealed partial class EfGateEntryService
         {
             var decision = await scopes.AuthorizeAsync(Actor(), ActorRole(),
                 new RecordScopeTarget(organization, po.RequestingDepartmentId, po.DeliveryWarehouseId, null, po.OwnerEmployeeId),
-                DateOnly.FromDateTime(DateTime.UtcNow), ct);
+                db.BusinessDate, ct);
             if (!decision.Allowed) continue;
             result.Add(new GateEntryPurchaseOrderCandidate(po.Id, po.PoNumber, po.VendorId,
                 po.Vendor?.Name ?? po.VendorId.ToString(), po.Lines.OrderBy(x => x.LineNumber)
@@ -87,7 +87,7 @@ public sealed partial class EfGateEntryService
         var seq=await db.PurchaseNumberSequences.SingleOrDefaultAsync(x=>x.CompanyId==companyId&&x.OrganizationId==org&&x.FinancialYear==year&&x.Prefix=="GE"&&x.IsActive,ct); if(seq is null){seq=new PurchaseNumberSequence{CompanyId=companyId,OrganizationId=org,FinancialYear=year,Prefix="GE",CreatedBy=user.LoginId};db.PurchaseNumberSequences.Add(seq);} seq.LastNumber++;seq.UpdatedAt=DateTimeOffset.UtcNow;seq.UpdatedBy=user.LoginId;return $"GE-{year}-{seq.LastNumber:000001}";
     }
     private void AddHistory(GateEntry gate,string? from,string to,string action,string correlation)=>db.StoresDocumentStatusHistories.Add(new StoresDocumentStatusHistory{CompanyId=gate.CompanyId,GateEntryId=gate.Id,FromStatus=from,ToStatus=to,Action=action,ActorEmployeeId=Actor(),ActorRoleCode=ActorRole(),OccurredAt=DateTimeOffset.UtcNow,CorrelationId=correlation});
-    private async Task RequireScope(Guid? department,Guid? warehouse,Guid owner,CancellationToken ct){var decision=await scopes.AuthorizeAsync(Actor(),ActorRole(),new RecordScopeTarget(Organization(),department,warehouse,null,owner),DateOnly.FromDateTime(DateTime.UtcNow),ct);if(!decision.Allowed)throw new UnauthorizedAccessException("Gate Entry record scope is denied.");}
+    private async Task RequireScope(Guid? department,Guid? warehouse,Guid owner,CancellationToken ct){var decision=await scopes.AuthorizeAsync(Actor(),ActorRole(),new RecordScopeTarget(Organization(),department,warehouse,null,owner),db.BusinessDate,ct);if(!decision.Allowed)throw new UnauthorizedAccessException("Gate Entry record scope is denied.");}
     private Guid Actor()=>user.IsAuthenticated&&user.EmployeeId.HasValue?user.EmployeeId.Value:throw new UnauthorizedAccessException("A resolved employee identity is required.");
     private string ActorRole()=>user.RequireRole("stores-receipt", "STORES_ASSISTANT", "STORES_EXECUTIVE", "STORES_MANAGER");
     private async Task RequireReceiptOperatorAsync(CancellationToken ct){var code=await db.Employees.AsNoTracking().Where(x=>x.Id==Actor()).Select(x=>x.EmployeeCode).SingleOrDefaultAsync(ct);if(code is not("SESS-16" or "SESS-35" or "SESS-41"))throw new UnauthorizedAccessException("Gate Entry is restricted to the three settled receipt operators.");}

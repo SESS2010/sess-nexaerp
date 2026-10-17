@@ -62,7 +62,7 @@ public static partial class Rev869AConfigurationEndpoints
     {
         var companyId = await db.Companies.Where(x => x.Code == user.OrganizationId && x.IsActive && x.Status == "ACTIVE").Select(x => (Guid?)x.Id).SingleOrDefaultAsync(ct);
         if (!companyId.HasValue) return Results.Forbid();
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var today = db.BusinessDate;
         var query = db.StoreCategoryRoutes.AsNoTracking().Include(x => x.ItemCategory)
             .Include(x => x.QcHoldConditionLocation!).ThenInclude(x => x.RackBin)
             .Include(x => x.QcHoldConditionLocation!).ThenInclude(x => x.Warehouse)

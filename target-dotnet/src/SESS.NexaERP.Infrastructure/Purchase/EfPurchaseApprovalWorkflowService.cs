@@ -16,7 +16,7 @@ public sealed class EfPurchaseApprovalWorkflowService(NexaErpDbContext db) : IPu
         string organizationId, Guid requestingDepartmentId, decimal amount, CancellationToken ct)
     {
         if (amount < 0) throw new InvalidOperationException("Approval value cannot be negative.");
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var today = db.BusinessDate;
         var companyId = await db.Companies.AsNoTracking()
             .Where(x => x.Code == organizationId && x.IsActive).Select(x => x.Id).SingleAsync(ct);
         var effectiveAt = DateTimeOffset.UtcNow;

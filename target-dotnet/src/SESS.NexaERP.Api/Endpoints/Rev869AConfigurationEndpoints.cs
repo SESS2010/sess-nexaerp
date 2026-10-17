@@ -182,7 +182,7 @@ public static partial class Rev869AConfigurationEndpoints
             return Results.NotFound();
         if (string.IsNullOrWhiteSpace(request.Remarks))
             return Results.BadRequest(new { message = "Qualification creation remarks are required." });
-        var scope = await scopes.AuthorizeAnyAsync(user.EmployeeId.Value, user.RoleCode, organization, DateOnly.FromDateTime(DateTime.UtcNow), ct);
+        var scope = await scopes.AuthorizeAnyAsync(user.EmployeeId.Value, user.RoleCode, organization, db.BusinessDate, ct);
         if (!scope.Allowed)
         {
             await audit.WriteAsync("Security", "Denied", nameof(VendorQualification), organization, null, new { scope.Reason, user.RoleCode }, ct);
@@ -249,7 +249,7 @@ public static partial class Rev869AConfigurationEndpoints
             return Results.BadRequest(new { message = "Legacy qualification normalization remarks are required." });
 
         var scope = await scopes.AuthorizeAnyAsync(user.EmployeeId.Value, user.RoleCode, user.OrganizationId,
-            DateOnly.FromDateTime(DateTime.UtcNow), ct);
+            db.BusinessDate, ct);
         if (!scope.Allowed)
         {
             await audit.WriteAsync("Security", "Denied", nameof(VendorQualification), qualificationId.ToString(), null,
@@ -364,7 +364,7 @@ public static partial class Rev869AConfigurationEndpoints
         if (scopeCandidate.Version != request.ExpectedVersion)
             return Results.Conflict(new { message = "Vendor qualification version is stale." });
 
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var today = db.BusinessDate;
         var historicalCreators = await db.EmployeeIdentityMappings.AsNoTracking()
             .Where(x => x.CompanyId == scopeCandidate.CompanyId &&
                         x.OrganizationId == scopeCandidate.OrganizationId &&
@@ -518,7 +518,7 @@ public static partial class Rev869AConfigurationEndpoints
     private static async Task<IResult> ListWarehouseConditionLocations(string? warehouseCode,string? conditionCode,bool? effectiveOnly,NexaErpDbContext db,ICurrentUser user,CancellationToken ct)
     {
         var companyId=await db.Companies.Where(x=>x.Code==user.OrganizationId&&x.IsActive&&x.Status=="ACTIVE").Select(x=>(Guid?)x.Id).SingleOrDefaultAsync(ct);if(!companyId.HasValue)return Results.Forbid();
-        var today=DateOnly.FromDateTime(DateTime.UtcNow);var query=db.WarehouseConditionLocations.AsNoTracking().Include(x=>x.Warehouse).Include(x=>x.RackBin).Where(x=>x.CompanyId==companyId.Value);
+        var today=db.BusinessDate;var query=db.WarehouseConditionLocations.AsNoTracking().Include(x=>x.Warehouse).Include(x=>x.RackBin).Where(x=>x.CompanyId==companyId.Value);
         if(!string.IsNullOrWhiteSpace(warehouseCode)){var code=MasterEndpointHelpers.NormalizeCode(warehouseCode);query=query.Where(x=>x.Warehouse!.WarehouseCode==code);}
         if(!string.IsNullOrWhiteSpace(conditionCode)){var condition=MasterEndpointHelpers.NormalizeCode(conditionCode);query=query.Where(x=>x.ConditionCode==condition);}
         if(effectiveOnly==true)query=query.Where(x=>x.IsActive&&x.EffectiveFrom<=today&&(!x.EffectiveTo.HasValue||x.EffectiveTo.Value>=today));
@@ -578,7 +578,7 @@ public static partial class Rev869AConfigurationEndpoints
     private static async Task<IResult> ListQcPolicies(Guid? itemId,Guid? categoryId,bool? effectiveOnly,NexaErpDbContext db,ICurrentUser user,CancellationToken ct)
     {
         var companyId=await db.Companies.Where(x=>x.Code==user.OrganizationId&&x.IsActive&&x.Status=="ACTIVE").Select(x=>(Guid?)x.Id).SingleOrDefaultAsync(ct);if(!companyId.HasValue)return Results.Forbid();
-        var today=DateOnly.FromDateTime(DateTime.UtcNow);var query=db.QcInspectionPolicies.AsNoTracking().Where(x=>x.CompanyId==companyId.Value);
+        var today=db.BusinessDate;var query=db.QcInspectionPolicies.AsNoTracking().Where(x=>x.CompanyId==companyId.Value);
         if(itemId.HasValue)query=query.Where(x=>x.ItemId==itemId.Value);
         if(categoryId.HasValue)query=query.Where(x=>x.ItemCategoryId==categoryId.Value);
         if(effectiveOnly==true)query=query.Where(x=>x.IsActive&&(x.ApprovalStatus==MasterApprovalStatuses.Approved||x.ApprovalStatus=="APPROVED")&&x.EffectiveFrom<=today&&(!x.EffectiveTo.HasValue||x.EffectiveTo.Value>=today));

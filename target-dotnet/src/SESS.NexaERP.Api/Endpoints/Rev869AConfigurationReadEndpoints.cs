@@ -14,7 +14,7 @@ public static partial class Rev869AConfigurationEndpoints
     private static async Task<IResult> ListEmployeeIdentities(string? employeeCode, bool? effectiveOnly, int? page, int? pageSize, NexaErpDbContext db, ICurrentUser user, CancellationToken ct)
     {
         var companyId = await CurrentCompanyId(db, user, ct); if (!companyId.HasValue) return Results.Forbid();
-        var today = DateOnly.FromDateTime(DateTime.UtcNow); var paging = MasterEndpointHelpers.NormalizePaging(page, pageSize);
+        var today = db.BusinessDate; var paging = MasterEndpointHelpers.NormalizePaging(page, pageSize);
         var query = db.EmployeeIdentityMappings.AsNoTracking().Where(x => x.CompanyId == companyId.Value);
         if (!string.IsNullOrWhiteSpace(employeeCode)) { var code = MasterEndpointHelpers.NormalizeCode(employeeCode); query = query.Where(x => x.Employee!.EmployeeCode == code); }
         if (effectiveOnly == true) query = query.Where(x => x.IsActive && x.EffectiveFrom <= today && (!x.EffectiveTo.HasValue || x.EffectiveTo.Value >= today));
@@ -30,7 +30,7 @@ public static partial class Rev869AConfigurationEndpoints
     private static async Task<IResult> ListOperationalScopes(string? employeeCode, string? departmentCode, string? warehouseCode, bool? effectiveOnly, int? page, int? pageSize, NexaErpDbContext db, ICurrentUser user, CancellationToken ct)
     {
         var companyId = await CurrentCompanyId(db,user,ct); if(!companyId.HasValue)return Results.Forbid();
-        var today=DateOnly.FromDateTime(DateTime.UtcNow);var paging=MasterEndpointHelpers.NormalizePaging(page,pageSize);
+        var today=db.BusinessDate;var paging=MasterEndpointHelpers.NormalizePaging(page,pageSize);
         var query=db.EmployeeOperationalScopes.AsNoTracking().Where(x=>x.CompanyId==companyId.Value);
         if(!string.IsNullOrWhiteSpace(employeeCode)){var code=MasterEndpointHelpers.NormalizeCode(employeeCode);query=query.Where(x=>x.Employee!.EmployeeCode==code);}
         if(!string.IsNullOrWhiteSpace(departmentCode)){var code=MasterEndpointHelpers.NormalizeCode(departmentCode);query=query.Where(x=>x.Department!.Code==code);}
@@ -43,7 +43,7 @@ public static partial class Rev869AConfigurationEndpoints
 
     private static async Task<IResult> ListUomConversions(string? fromUomCode,string? toUomCode,string? measurementDimension,bool? effectiveOnly,int? page,int? pageSize,NexaErpDbContext db,ICurrentUser user,CancellationToken ct)
     {
-        var today=DateOnly.FromDateTime(DateTime.UtcNow);var paging=MasterEndpointHelpers.NormalizePaging(page,pageSize);var organization=user.OrganizationId;
+        var today=db.BusinessDate;var paging=MasterEndpointHelpers.NormalizePaging(page,pageSize);var organization=user.OrganizationId;
         var query=db.UomConversions.AsNoTracking().Where(x=>x.OrganizationId==organization);
         if(!string.IsNullOrWhiteSpace(fromUomCode)){var code=MasterEndpointHelpers.NormalizeCode(fromUomCode);query=query.Where(x=>x.FromUom!.Code==code);}
         if(!string.IsNullOrWhiteSpace(toUomCode)){var code=MasterEndpointHelpers.NormalizeCode(toUomCode);query=query.Where(x=>x.ToUom!.Code==code);}
@@ -57,7 +57,7 @@ public static partial class Rev869AConfigurationEndpoints
 
     private static async Task<IResult> ListTaxGstSettings(string? hsnSacCode,string? approvalStatus,bool? effectiveOnly,int? page,int? pageSize,NexaErpDbContext db,ICurrentUser user,CancellationToken ct)
     {
-        var companyId=await CurrentCompanyId(db,user,ct);if(!companyId.HasValue)return Results.Forbid();var today=DateOnly.FromDateTime(DateTime.UtcNow);var paging=MasterEndpointHelpers.NormalizePaging(page,pageSize);
+        var companyId=await CurrentCompanyId(db,user,ct);if(!companyId.HasValue)return Results.Forbid();var today=db.BusinessDate;var paging=MasterEndpointHelpers.NormalizePaging(page,pageSize);
         var query=db.TaxGstSettings.AsNoTracking().Where(x=>x.CompanyId==companyId.Value);
         if(!string.IsNullOrWhiteSpace(hsnSacCode)){var code=MasterEndpointHelpers.NormalizeCode(hsnSacCode);query=query.Where(x=>x.HsnSacCode==code);}
         if(!string.IsNullOrWhiteSpace(approvalStatus)){var status=approvalStatus.Trim();query=query.Where(x=>x.ApprovalStatus==status);}
@@ -71,7 +71,7 @@ public static partial class Rev869AConfigurationEndpoints
 
     private static async Task<IResult> ListVendorQualifications(string? vendorCode,string? itemCategoryCode,string? approvalStatus,bool? effectiveOnly,int? page,int? pageSize,NexaErpDbContext db,ICurrentUser user,CancellationToken ct)
     {
-        var companyId=await CurrentCompanyId(db,user,ct);if(!companyId.HasValue)return Results.Forbid();var today=DateOnly.FromDateTime(DateTime.UtcNow);var paging=MasterEndpointHelpers.NormalizePaging(page,pageSize);
+        var companyId=await CurrentCompanyId(db,user,ct);if(!companyId.HasValue)return Results.Forbid();var today=db.BusinessDate;var paging=MasterEndpointHelpers.NormalizePaging(page,pageSize);
         var query=db.VendorQualifications.AsNoTracking().Where(x=>x.CompanyId==companyId.Value);
         if(!string.IsNullOrWhiteSpace(vendorCode)){var code=MasterEndpointHelpers.NormalizeCode(vendorCode);query=query.Where(x=>x.Vendor!.VendorCode==code);}
         if(!string.IsNullOrWhiteSpace(itemCategoryCode)){var code=MasterEndpointHelpers.NormalizeCode(itemCategoryCode);query=query.Where(x=>x.ItemCategory!.Code==code);}

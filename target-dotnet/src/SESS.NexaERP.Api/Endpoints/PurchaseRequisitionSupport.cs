@@ -39,7 +39,7 @@ public static partial class PurchaseRequisitionEndpoints
             {
                 return Results.BadRequest(new { message = ex.Message });
             }
-            var actorScopes = await SESS.NexaERP.Infrastructure.Authorization.PurchaseActorScope.ActiveScopes(db, user, DateOnly.FromDateTime(DateTime.UtcNow)).ToListAsync(ct);
+            var actorScopes = await SESS.NexaERP.Infrastructure.Authorization.PurchaseActorScope.ActiveScopes(db, user, db.BusinessDate).ToListAsync(ct);
             if (locations.Any(location => !actorScopes.Any(scope =>
                 (!scope.WarehouseId.HasValue || scope.WarehouseId == location.WarehouseId) &&
                 (!scope.RackBinId.HasValue || scope.RackBinId == location.RackBinId) &&
@@ -103,7 +103,7 @@ public static partial class PurchaseRequisitionEndpoints
 
     private static async Task<List<StockLocation>> ResolveLocations(PurchaseRequisitionLine line, PurchaseRequisition pr, StockCheckRequest request, NexaErpDbContext db, CancellationToken ct)
     {
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var today = db.BusinessDate;
         var requested = request.Locations?.Where(x => x.LineNumber == line.LineNumber).ToList() ?? [];
         if (requested.Count == 0)
         {

@@ -30,7 +30,7 @@ public sealed partial class EfRev869BPurchaseService
         var quotes = await db.VendorQuotations.AsNoTracking().Include(x => x.Lines).ThenInclude(x => x.RequestForQuotationLine).Where(x => x.OrganizationId == organization && x.RfqVendorInvitation!.RequestForQuotationId == rfq.Id && x.IsCurrentRevision && x.Status == Rev869BStatuses.TechnicallyCompliant).ToListAsync(ct);
         if (quotes.Count == 0) throw new Rev869BConflictException("No current technically compliant quotation is available.");
         if (quotes.Any(x => x.CurrencyCode != rfq.CurrencyCode)) throw new Rev869BConflictException("Currency conversion unavailable; quotations must match RFQ currency.");
-        var next = await NextNumberAsync(organization, "CMP", DateOnly.FromDateTime(DateTime.UtcNow), ct); var comparison = new CommercialComparison { OrganizationId = organization, ComparisonNumber = next.Number, FinancialYear = next.Year, SequenceNumber = next.Sequence, RequestForQuotationId = rfq.Id, OwnerEmployeeId = actor, CreatorEmployeeId = actor, CurrencyCode = rfq.CurrencyCode, IsSingleSource = rfq.IsSingleSource, SingleSourceJustification = rfq.SingleSourceJustification, IdempotencyKey = comparisonFingerprint, TransitionCorrelationId = comparisonFingerprint, CreatedBy = user.LoginId };
+        var next = await NextNumberAsync(organization, "CMP", db.BusinessDate, ct); var comparison = new CommercialComparison { OrganizationId = organization, ComparisonNumber = next.Number, FinancialYear = next.Year, SequenceNumber = next.Sequence, RequestForQuotationId = rfq.Id, OwnerEmployeeId = actor, CreatorEmployeeId = actor, CurrencyCode = rfq.CurrencyCode, IsSingleSource = rfq.IsSingleSource, SingleSourceJustification = rfq.SingleSourceJustification, IdempotencyKey = comparisonFingerprint, TransitionCorrelationId = comparisonFingerprint, CreatedBy = user.LoginId };
         comparison.CompanyId = rfq.CompanyId;
         foreach (var quote in quotes) foreach (var line in quote.Lines)
         {
@@ -159,7 +159,7 @@ public sealed partial class EfRev869BPurchaseService
             .Where(x => x.CommercialComparisonId == c.Id && x.Action == "Approve" && x.ToStatus == Rev869BStatuses.Approved)
             .OrderByDescending(x => x.CreatedAt).FirstOrDefaultAsync(ct)
             ?? throw new Rev869BConflictException("Approved comparison history evidence is missing.");
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var today = db.BusinessDate;
         foreach (var category in quote.Lines.Select(x => x.RequestForQuotationLine!.Item!.CategoryId).Distinct()) if (!await vendors.IsEligibleAsync(quote.VendorId, c.OrganizationId, category, today, ct)) throw new Rev869BConflictException("Selected vendor category qualification is no longer effective.");
         var next = await NextNumberAsync(c.OrganizationId, "PO", today, ct); var po = new PurchaseOrder { OrganizationId = c.OrganizationId, PoNumber = next.Number, FinancialYear = next.Year, SequenceNumber = next.Sequence, RootPurchaseOrderId = Guid.NewGuid(), RevisionNumber = 1, CommercialComparisonId = c.Id, VendorId = quote.VendorId, RequestingDepartmentId = rfq.RequestingDepartmentId, DeliveryWarehouseId = rfq.DeliveryWarehouseId, OwnerEmployeeId = actor, CreatorEmployeeId = actor, Status = Rev869BStatuses.Draft, CurrencyCode = quote.CurrencyCode, PaymentTermsSnapshot = quote.PaymentTermsSnapshot, DeliveryTermsSnapshot = quote.DeliveryTermsSnapshot, WarrantyTermsSnapshot = quote.WarrantyTermsSnapshot, IdempotencyKey = poFingerprint, TransitionCorrelationId = poFingerprint, CreatedBy = user.LoginId };
         po.CompanyId = c.CompanyId;
@@ -183,7 +183,7 @@ public sealed partial class EfRev869BPurchaseService
         po.OtherCharges = aggregate.OtherCharges; po.RoundOff = aggregate.RoundOff; po.TotalPayableValue = aggregate.TotalPayableValue;
         foreach (var poLine in po.Lines) poLine.CompanyId = po.CompanyId;
         po.ApprovalRoute = c.ApprovalRoute;
-        po.ApprovalPolicySnapshotJson = JsonSerializer.Serialize(new { po.OrganizationId, RouteCode = po.ApprovalRoute, ApprovalValue = po.TotalPayableValue, EffectiveOn = DateOnly.FromDateTime(DateTime.UtcNow) }, JsonOptions);
+        po.ApprovalPolicySnapshotJson = JsonSerializer.Serialize(new { po.OrganizationId, RouteCode = po.ApprovalRoute, ApprovalValue = po.TotalPayableValue, EffectiveOn = db.BusinessDate }, JsonOptions);
         db.PurchaseOrders.Add(po);
         AddPoHistory(po, "Create", "", po.Status, "Created from approved comparison", poFingerprint); AddStatus("PurchaseOrder", po.Id, po.PoNumber, null, po.Status, "Create", "Created from approved comparison", poFingerprint);
         await SaveAuthorizedChangesAsync(ct); await WriteAuditAsync("Purchase", "CreatePO", nameof(PurchaseOrder), po.Id.ToString(), null, new { po.PoNumber, po.TotalPayableValue }, ct); await tx.CommitAsync(ct); return Result(po.Id, po.PoNumber, po.Status, po.Version);
