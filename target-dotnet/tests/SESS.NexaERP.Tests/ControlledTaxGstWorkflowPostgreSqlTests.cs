@@ -99,7 +99,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 Request("9025") with
                 {
                     GstRate = 12, CgstRate = 6, SgstRate = 6,
-                    EffectiveFrom = DateOnly.FromDateTime(DateTime.UtcNow).AddDays(1),
+                    EffectiveFrom = SESS.NexaERP.Application.Common.BusinessCalendar.DateAt(DateTimeOffset.UtcNow).AddDays(1),
                     SupersedesTaxGstSettingId = approvedId
                 },
                 "tax-supersede-9025", default);
@@ -120,7 +120,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 x.EntityName == nameof(TaxGstSetting) && x.EntityId == approvedId.ToString()));
             var resolved = await new EfTaxGstResolver(verifier).ResolveAsync(
                 new TaxResolutionRequest("SESS_PVT_LTD", TaxJurisdictions.IndiaGst, "9025", "33", "33",
-                    VendorRegistrationType.REGULAR.ToCanonicalValue(), DateOnly.FromDateTime(DateTime.UtcNow).AddDays(1), 100), default);
+                    VendorRegistrationType.REGULAR.ToCanonicalValue(), SESS.NexaERP.Application.Common.BusinessCalendar.DateAt(DateTimeOffset.UtcNow).AddDays(1), 100), default);
             Assert.Equal(successorId, resolved.Id);
             Assert.Equal(12, resolved.GstRate);
             Assert.Equal(InputTaxCreditEligibility.FullyRecoverable, predecessor.ItcEligibility);
@@ -163,7 +163,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
     private static CreateTaxGstSettingRequest Request(string hsn) => new(
         "SESS_PVT_LTD", TaxJurisdictions.IndiaGst, hsn, "33", "33",
         VendorRegistrationType.REGULAR.ToCanonicalValue(), 18, 9, 9, 0, 0,
-        false, false, "INR", 2, DateOnly.FromDateTime(DateTime.UtcNow), null, "Manual GST portal cross-check required");
+        false, false, "INR", 2, SESS.NexaERP.Application.Common.BusinessCalendar.DateAt(DateTimeOffset.UtcNow), null, "Manual GST portal cross-check required");
 
     private sealed class TaxWorkflowUser : ICurrentUser
     {
@@ -194,13 +194,23 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         public string? OrganizationId => CurrentOrganizationId;
         public string CurrentOrganizationId { get; private set; } = "SESS_PVT_LTD";
         public bool IsAuthenticated => true;
-        public string? IdentityIssuer => "https://issuer.purchase-flow.test";
+        public string IdentityAuthorityType {get;private set;}="HUMAN";
+        public string? EmployeeCode {get;private set;}
+        public void SetAuthorityProfile(string type,string code){IdentityAuthorityType=type;EmployeeCode=code;}
+        public string? IdentityIssuer => CurrentIssuer;
+        public string CurrentIssuer {get;private set;} = "https://issuer.purchase-flow.test";
+        public Guid? DepartmentId {get;private set;}
+        public void SetIdentityContext(string issuer,Guid department){CurrentIssuer=issuer;DepartmentId=department;}
         public string? IdentitySubject => LoginId;
         public Guid? EmployeeId => CurrentEmployeeId;
         public TaxWorkflowUser ForRequest() => new(CurrentEmployeeId, LoginId, "none", knownAssignments)
         {
             assignments = assignments.ToArray(),
-            CurrentOrganizationId = CurrentOrganizationId
+            CurrentOrganizationId = CurrentOrganizationId,
+            CurrentIssuer = CurrentIssuer,
+            DepartmentId = DepartmentId,
+            IdentityAuthorityType = IdentityAuthorityType,
+            EmployeeCode = EmployeeCode
         };
         public void SetResolvedRoleAuthority(ResolvedRoleAuthority value)
         {
@@ -216,6 +226,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             CurrentEmployeeId = id;
             LoginId = rotatedSubjects.GetValueOrDefault(id, subject);
             authority = null;
+            IdentityAuthorityType="HUMAN";EmployeeCode=null;
             var roles = effectiveRoles.Length == 0 ? [roleCode] : effectiveRoles;
             assignments = roles.Distinct(StringComparer.Ordinal).Select(code =>
                 knownAssignments.TryGetValue(AssignmentKey(id, code), out var assignment)

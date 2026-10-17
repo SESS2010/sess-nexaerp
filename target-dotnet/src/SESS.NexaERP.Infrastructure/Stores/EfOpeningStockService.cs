@@ -55,6 +55,7 @@ public sealed class EfOpeningStockService(
     private async Task<OpeningStockView> RecordCountCoreAsync(
         CreateOpeningStockFromImportRequest request, CancellationToken ct)
     {
+        user.RequireAccountsBackupPageAction("stores.opening-stock", "create");
         var role = user.RequireRole("create", "STORES_MANAGER");
         ValidatePeriod(request.PeriodStart, request.PeriodEnd);
         var company = await CompanyAsync(ct);
@@ -80,7 +81,7 @@ public sealed class EfOpeningStockService(
     public Task<OpeningStockView> ConfirmValueAsync(
         Guid id, OpeningStockTransitionRequest request, CancellationToken ct) =>
         WithConcurrencyHandlingAsync(() => TransitionAsync(id, request, "OpeningStock.ConfirmValue", "VALUE",
-            OpeningStockStatuses.Counted, OpeningStockStatuses.Valued, "ACCOUNTS_MANAGER", ct));
+            OpeningStockStatuses.Counted, OpeningStockStatuses.Valued, "ACCOUNTS_MANAGER", ct), request.IndependentMdReview);
 
     public Task<OpeningStockView> AuthorizeAsync(
         Guid id, OpeningStockTransitionRequest request, CancellationToken ct) =>
@@ -98,6 +99,8 @@ public sealed class EfOpeningStockService(
 
     private async Task<OpeningStockView> WithdrawCoreAsync(Guid id, OpeningStockTransitionRequest request, CancellationToken ct)
     {
+        user.RequireAccountsBackupPageAction("stores.opening-stock", "create");
+        if (request.IndependentMdReview) throw new StoresValidationException("Independent MD review applies only to the value-review step.");
         var role = user.RequireRole("approve", "STORES_MANAGER", "TECHNICAL_DIRECTOR");
         var company = await CompanyAsync(ct);
         var reason = Required(request.Reason, "Reason");
@@ -120,9 +123,13 @@ public sealed class EfOpeningStockService(
         return await LoadAsync(id, result.Replayed, ct);
     }
 
-    private static async Task<OpeningStockView> WithConcurrencyHandlingAsync(Func<Task<OpeningStockView>> command)
+    private static async Task<OpeningStockView> WithConcurrencyHandlingAsync(Func<Task<OpeningStockView>> command, bool independentMdReview = false)
     {
         try { return await command(); }
+        catch (PostgresException error) when (independentMdReview && error.SqlState == PostgresErrorCodes.InsufficientPrivilege)
+        {
+            throw new UnauthorizedAccessException("Independent value review is not permitted for this document and current identity.", error);
+        }
         catch (Exception error) when (PostgreSqlConcurrency.IsSerializationFailure(error))
         {
             throw new DbUpdateConcurrencyException(
@@ -134,13 +141,33 @@ public sealed class EfOpeningStockService(
         Guid id, OpeningStockTransitionRequest request, string operation, string action,
         string from, string to, string requiredRole, CancellationToken ct)
     {
-        var role = user.RequireRole("approve", requiredRole);
+        user.RequireAccountsBackupPageAction("stores.opening-stock", action == "VALUE" ? "verify" : "approve");
+        if (request.IndependentMdReview && action != "VALUE")
+            throw new StoresValidationException("Independent MD review applies only to the value-review step.");
+        var role = user.RequireRole("approve", request.IndependentMdReview ? "MANAGING_DIRECTOR" : requiredRole);
         var company = await CompanyAsync(ct);
         var reason = Required(request.Reason, "Reason");
         var envelope = Rev869BCommandContextAuthorizer.CommandEnvelope.Create(
             Organization(), operation, Required(request.IdempotencyKey, "IdempotencyKey"),
             new { id, request });
         await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
+        if (request.IndependentMdReview)
+        {
+            var actor = Actor();
+            // Re-resolve current authority before opening an idempotent command: a stale
+            // request principal must not replay after its mapping or assignment is revoked.
+            var identity = await new SESS.NexaERP.Infrastructure.Identity.EfEmployeeIdentityResolver(db)
+                .ResolveAsync(user.IdentityIssuer ?? "", user.IdentitySubject ?? "", Organization(), db.BusinessDate, ct);
+            var isMd = identity.Success && identity.EmployeeId == actor && identity.EmployeeCode == "SESS-02"
+                && identity.OrganizationId == company.Code
+                && (identity.EffectiveRoleAssignments?.Any(a => a.AssignmentId == user.ResolvedRoleAssignmentId
+                    && a.RoleCode == "MANAGING_DIRECTOR" && a.AssignmentType is "FULL" or "TEMPORARY") ?? false);
+            var countedByKarthick = await db.OpeningStocks.AsNoTracking().AnyAsync(o => o.Id == id && o.CompanyId == company.Id
+                && o.CountedByEmployee != null && o.CountedByEmployee.EmployeeCode == "SESS-41", ct);
+            if (!isMd || !countedByKarthick)
+                throw new UnauthorizedAccessException("Independent MD valuation is limited to the named MD and a count recorded by KARTHICK.");
+            reason = "[Independent MD review: ALFATHIMA unavailable; KARTHICK involved] " + reason;
+        }
         var attempt = await Rev869BCommandContextAuthorizer.OpenForDatabaseFunctionAsync(
             db, user, Organization(), envelope, "opening_stock_events", nameof(OpeningStock),
             id, action, request.Version, from, to, envelope.RequestFingerprint, reason, ct);

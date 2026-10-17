@@ -89,7 +89,7 @@ public sealed class PurchaseRequisition : CompanyScopedAuditableEntity
     public Department? RequestingDepartment { get; set; }
     public Guid? RequesterEmployeeId { get; set; }
     public Employee? RequesterEmployee { get; set; }
-    public DateOnly RequestDate { get; set; } = DateOnly.FromDateTime(DateTime.UtcNow);
+    public DateOnly RequestDate { get; set; } = SESS.NexaERP.Domain.Common.BusinessDatePolicy.KolkataDate(DateTimeOffset.UtcNow);
     public DateOnly RequiredByDate { get; set; }
     public string Priority { get; set; } = "Normal";
     public string PurposeJustification { get; set; } = string.Empty;

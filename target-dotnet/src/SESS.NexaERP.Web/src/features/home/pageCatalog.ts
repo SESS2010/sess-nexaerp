@@ -49,6 +49,9 @@ export interface CatalogGroup {
 // are placeholders (`nav-link disabled`) have no page behind them and are not
 // listed here.
 export const PAGE_CATALOG: readonly CatalogGroup[] = [
+  { id: 'employee', label: 'My work', entries: [
+    { to: '/employee/my-mirs', label: 'My material requests', hint: 'Your MIRs, status and unused returns', page: PAGE_KEYS.ownMirs },
+  ] },
   {
     id: 'dashboards',
     label: 'Dashboards',
@@ -147,8 +150,8 @@ export const PAGE_CATALOG: readonly CatalogGroup[] = [
 ]
 
 /** Whether the session may open this entry. ALWAYS_VISIBLE needs only a session. */
-export function isEntryVisible(entry: CatalogEntry, can: Can, signedIn: boolean): boolean {
-  if (entry.page === ALWAYS_VISIBLE) return signedIn
+export function isEntryVisible(entry: CatalogEntry, can: Can, signedIn: boolean, allowGlobal = true): boolean {
+  if (entry.page === ALWAYS_VISIBLE) return signedIn && allowGlobal
   if (Array.isArray(entry.page)) return entry.page.some((key) => can(key, entry.action))
   return can(entry.page as string, entry.action)
 }
@@ -157,9 +160,9 @@ export function isEntryVisible(entry: CatalogEntry, can: Can, signedIn: boolean)
  * The shortcuts this session may open, grouped and ordered like the sidebar.
  * Groups with nothing visible are dropped rather than shown empty.
  */
-export function shortcutGroups(can: Can, signedIn: boolean): CatalogGroup[] {
+export function shortcutGroups(can: Can, signedIn: boolean, allowGlobal = true): CatalogGroup[] {
   return PAGE_CATALOG
-    .map((group) => ({ ...group, entries: group.entries.filter((entry) => isEntryVisible(entry, can, signedIn)) }))
+    .map((group) => ({ ...group, entries: group.entries.filter((entry) => isEntryVisible(entry, can, signedIn, allowGlobal)) }))
     .filter((group) => group.entries.length > 0)
 }
 

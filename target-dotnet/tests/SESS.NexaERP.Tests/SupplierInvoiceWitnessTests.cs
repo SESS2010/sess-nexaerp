@@ -43,7 +43,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 var selectedLine=Assert.Single(selectedPo.Lines);
                 Assert.Equal(line.Id,selectedLine.Id);
                 var request=new RecordSupplierInvoiceRequest(selectedPo.Id,"TRIAL-BILL-"+context.Band,
-                    DateOnly.FromDateTime(DateTime.UtcNow),selectedPo.CurrencyCode,
+                    SESS.NexaERP.Application.Common.BusinessCalendar.DateAt(DateTimeOffset.UtcNow),selectedPo.CurrencyCode,
                     [new(selectedLine.Id,1,selectedLine.UnitRate,selectedLine.TotalPayableValue)],
                     new("supplier-invoice.pdf","application/pdf",SupplierInvoiceFixturePdf(context.Band)),
                     "supplier-invoice-"+context.Band);
@@ -192,7 +192,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         await using var db=new NexaErpDbContext(context.Options);
         var po=await db.PurchaseOrders.Include(x=>x.Lines).SingleAsync(x=>x.Id==context.PurchaseOrderId);
         context.User.Set(context.StoresId,"SESS-35",Rev869ARoleCodes.StoresExecutive,Rev869ARoleCodes.StoresExecutive);
-        var client=context.Client;var key="supplier-invoice-"+suffix;var date=DateOnly.FromDateTime(DateTime.UtcNow);
+        var client=context.Client;var key="supplier-invoice-"+suffix;var date=SESS.NexaERP.Application.Common.BusinessCalendar.DateAt(DateTimeOffset.UtcNow);
         var gate=await Post<GateEntryResult>(client,"/api/v1/stores/gate-entries/",
             new CreateGateEntryRequest(po.PoNumber,key,"TRIAL-VEHICLE","ROAD",DateTimeOffset.UtcNow,
                 "{\"packagesChecked\":true}",[new(Assert.Single(po.Lines).Id,quantity)]),key+"-gate");

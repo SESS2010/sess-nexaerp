@@ -34,7 +34,7 @@ public sealed partial class EfEstimatedBomService
                 throw new StoresValidationException($"UOM {uom.Code} is not comparable with base UOM {baseUom.Code} for item {item.ItemCode}.");
             if (uom.Id != baseUom.Id)
             {
-                var today = DateOnly.FromDateTime(DateTime.UtcNow);
+                var today = db.BusinessDate;
                 var conversion = await db.UomConversions.AnyAsync(x => x.IsActive && x.ApprovalStatus == MasterApprovalStatuses.Approved &&
                     x.MeasurementDimension == uom.MeasurementDimension && x.EffectiveFrom <= today &&
                     (!x.EffectiveTo.HasValue || x.EffectiveTo >= today) &&
@@ -179,7 +179,7 @@ public sealed partial class EfEstimatedBomService
 
     private async Task<string> NextNumberAsync(Guid companyId, string organization, CancellationToken ct)
     {
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var today = db.BusinessDate;
         var year = today.Month >= 4 ? $"{today.Year % 100:00}-{(today.Year + 1) % 100:00}" : $"{(today.Year - 1) % 100:00}-{today.Year % 100:00}";
         var lockKey = $"NUMBER:{organization}:{year}:EBOM";
         await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(hashtextextended({lockKey},0))", ct);
@@ -233,7 +233,7 @@ public sealed partial class EfEstimatedBomService
     private async Task<decimal> ToBaseQuantityAsync(decimal quantity, Guid fromUomId, Guid baseUomId, CancellationToken ct)
     {
         if (fromUomId == baseUomId) return quantity;
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var today = db.BusinessDate;
         var conversion = await db.UomConversions.AsNoTracking().SingleAsync(x => x.IsActive &&
             x.ApprovalStatus == MasterApprovalStatuses.Approved && x.EffectiveFrom <= today &&
             (!x.EffectiveTo.HasValue || x.EffectiveTo >= today) &&

@@ -235,7 +235,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         // The projection executes with current_user=nexa_erp_runtime on that transaction.
         await source.Database.OpenConnectionAsync();
         var connection = (NpgsqlConnection)source.Database.GetDbConnection();
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var today = SESS.NexaERP.Application.Common.BusinessCalendar.DateAt(DateTimeOffset.UtcNow);
         var scope = await source.EmployeeOperationalScopes.AsNoTracking()
             .Where(x => x.CompanyId == company && x.EmployeeId == employee && x.IsActive &&
                 x.EffectiveFrom <= today && x.EffectiveTo == null).Select(x => x.Id).FirstAsync();

@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using SESS.NexaERP.Application.Stores;
+using SESS.NexaERP.Application.Common;
 using SESS.NexaERP.Domain.Stores;
 
 namespace SESS.NexaERP.Infrastructure.Stores;
@@ -12,6 +13,7 @@ public sealed partial class EfMaterialIssueService
         var company = await CompanyAsync(ct);
         page = Math.Max(page, 1); pageSize = Math.Clamp(pageSize, 1, 200);
         var query = RequestQuery().Where(x => x.CompanyId == company.Id);
+        if (MirRequesterPolicy.IsRequesterOnly(user)) query = query.Where(x => x.RequestedByEmployeeId == Actor());
         if (!string.IsNullOrWhiteSpace(number))
         {
             var term = number.Trim().ToUpperInvariant();
@@ -33,14 +35,16 @@ public sealed partial class EfMaterialIssueService
     public async Task<MaterialIssueRequestView?> GetRequestAsync(Guid id, CancellationToken ct)
     {
         var company = await CompanyAsync(ct);
-        var row = await RequestQuery().SingleOrDefaultAsync(x => x.CompanyId == company.Id && x.Id == id, ct);
+        var row = await RequestQuery().SingleOrDefaultAsync(x => x.CompanyId == company.Id && x.Id == id
+            && (!MirRequesterPolicy.IsRequesterOnly(user) || x.RequestedByEmployeeId == Actor()), ct);
         return row is null ? null : await RequestViewAsync(row, ct);
     }
 
     public async Task<MaterialIssueView?> GetIssueAsync(Guid id, CancellationToken ct)
     {
         var company = await CompanyAsync(ct);
-        var issue = await IssueQuery().SingleOrDefaultAsync(x => x.CompanyId == company.Id && x.Id == id, ct);
+        var issue = await IssueQuery().SingleOrDefaultAsync(x => x.CompanyId == company.Id && x.Id == id
+            && (!MirRequesterPolicy.IsRequesterOnly(user) || x.IssuedToEmployeeId == Actor()), ct);
         return issue is null ? null : await IssueViewAsync(issue, false, ct);
     }
 
@@ -48,6 +52,11 @@ public sealed partial class EfMaterialIssueService
         Guid? employeeId, bool? notificationDue, CancellationToken ct)
     {
         var company = await CompanyAsync(ct);
+        if (MirRequesterPolicy.IsRequesterOnly(user))
+        {
+            if (employeeId.HasValue && employeeId != Actor()) throw new UnauthorizedAccessException("Only own custody is available.");
+            employeeId = Actor();
+        }
         var now = DateTimeOffset.UtcNow;
         var query = db.MaterialIssues.AsNoTracking().Where(x =>
             x.CompanyId == company.Id && (x.Status == "ISSUED" || x.Status == "PARTIALLY_RETURNED"));
@@ -75,7 +84,7 @@ public sealed partial class EfMaterialIssueService
         CancellationToken ct)
     {
         var company = await CompanyAsync(ct);
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var today = db.BusinessDate;
         return await db.Employees.AsNoTracking()
             .Where(employee => employee.Status == "Active"
                 && db.EmployeeRoleAssignments.Any(x => x.CompanyId == company.Id
@@ -142,6 +151,7 @@ public sealed partial class EfMaterialIssueService
         var company = await CompanyAsync(ct);
         page = Math.Max(1, page); pageSize = Math.Clamp(pageSize, 1, 200);
         var query = ReturnQuery().Where(x => x.CompanyId == company.Id);
+        if (MirRequesterPolicy.IsRequesterOnly(user)) query = query.Where(x => x.ReturnedByEmployeeId == Actor() && x.MaterialIssue!.IssuedToEmployeeId == Actor());
         if (materialIssueId.HasValue) query = query.Where(x => x.MaterialIssueId == materialIssueId);
         if (!string.IsNullOrWhiteSpace(status))
         {
@@ -156,7 +166,8 @@ public sealed partial class EfMaterialIssueService
     public async Task<MaterialReturnView?> GetReturnAsync(Guid id, CancellationToken ct)
     {
         var company = await CompanyAsync(ct);
-        var row = await ReturnQuery().SingleOrDefaultAsync(x => x.CompanyId == company.Id && x.Id == id, ct);
+        var row = await ReturnQuery().SingleOrDefaultAsync(x => x.CompanyId == company.Id && x.Id == id
+            && (!MirRequesterPolicy.IsRequesterOnly(user) || x.ReturnedByEmployeeId == Actor() && x.MaterialIssue!.IssuedToEmployeeId == Actor()), ct);
         return row is null ? null : ReturnView(row, false);
     }
 

@@ -38,7 +38,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             var scope = await new EfRecordScopeAuthorizer(source).AuthorizeAsync(employee.Id, role,
                 new RecordScopeTarget("SESS_PVT_LTD", revision.RequestingDepartmentId,
                     revision.DeliveryWarehouseId, null, revision.OwnerEmployeeId),
-                DateOnly.FromDateTime(DateTime.UtcNow), default);
+                SESS.NexaERP.Application.Common.BusinessCalendar.DateAt(DateTimeOffset.UtcNow), default);
             var evidence = Path.Combine(FindRepositoryRoot(), "local-evidence", "item29");
             Directory.CreateDirectory(evidence);
             await File.WriteAllTextAsync(Path.Combine(evidence, "receipt-revision-scope.json"),
@@ -50,7 +50,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 x.EmployeeId == employee.Id && x.IsActive).Select(x => x.Subject).SingleAsync();
             actor.Set(employee.Id, subject, role);
             await using var host = await PurchaseFlowHost.StartAsync(context.RuntimeConnection, actor, true, true);
-            var today = DateOnly.FromDateTime(DateTime.UtcNow);
+            var today = SESS.NexaERP.Application.Common.BusinessCalendar.DateAt(DateTimeOffset.UtcNow);
             const string key = "revision-receipt-continuity";
             var gate = await Post<GateEntryResult>(host.Client, "/api/v1/stores/gate-entries/",
                 new CreateGateEntryRequest(revision.PoNumber, key + "-DC", "TRIAL-VEHICLE", "ROAD",

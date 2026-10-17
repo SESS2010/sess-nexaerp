@@ -54,7 +54,7 @@ public sealed partial class EfMaterialIssueService
             ?? throw new KeyNotFoundException("MIR was not found.");
         if (request.Status is not ("APPROVED" or "PARTIALLY_FULFILLED"))
             throw new StoresConflictException("Material may be issued only against an Approved MIR.");
-        var on = DateOnly.FromDateTime(command.IssuedAt.UtcDateTime);
+        var on = SESS.NexaERP.Application.Common.BusinessCalendar.DateAt(command.IssuedAt);
         var recipient = await db.Employees.SingleOrDefaultAsync(x => x.Id == command.IssuedToEmployeeId && x.Status == "Active", ct)
             ?? throw new StoresValidationException("IssuedToEmployeeId is not an active employee.");
         if (!await db.EmployeeRoleAssignments.AsNoTracking().AnyAsync(x =>

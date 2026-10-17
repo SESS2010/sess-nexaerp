@@ -280,7 +280,7 @@ public sealed class EfFitmentActualBomService(NexaErpDbContext db, ICurrentUser 
             var itemId = await TerminalItemIdAsync(line.ItemId, ct);
             var item = await db.Items.AsNoTracking().SingleAsync(x => x.Id == itemId, ct);
             var quantity = await ToBaseQuantityAsync(line.Quantity, line.UomId, item.BaseUomId,
-                DateOnly.FromDateTime(effectiveAt.UtcDateTime), ct);
+                SESS.NexaERP.Application.Common.BusinessCalendar.DateAt(effectiveAt), ct);
             var prior = baseline.GetValueOrDefault(itemId);
             sources[itemId] = !sources.TryGetValue(itemId, out var priorSource) ? line.ValueSource
                 : string.Equals(priorSource, line.ValueSource, StringComparison.Ordinal) ? priorSource : "MIXED";

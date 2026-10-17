@@ -36,7 +36,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
   user.Set(context.StoresId,"SESS-35",Rev869ARoleCodes.StoresExecutive);
   var candidates=await Get<PagedResponse<MachineDeliveryJobOrderCandidate>>(client,"/api/v1/stores/machine-deliveries/job-orders?search="+Uri.EscapeDataString(job.MachineSerial));
   var selected=Assert.Single(candidates.Items);
-  var dispatch=new DispatchMachineRequest(selected.JobOrderId,"WITNESS-MACHINE-DC-001",nature,nature=="RETURNABLE" ? "DEMO" : "CUSTOMER_PO_BASED",DateOnly.FromDateTime(DateTime.Now),nature=="RETURNABLE" ? DateOnly.FromDateTime(DateTime.Now).AddDays(7) : null,"Witness customer gate","machine-dispatch-001");
+  var dispatch=new DispatchMachineRequest(selected.JobOrderId,"WITNESS-MACHINE-DC-001",nature,nature=="RETURNABLE" ? "DEMO" : "CUSTOMER_PO_BASED",SESS.NexaERP.Application.Common.BusinessCalendar.DateAt(DateTimeOffset.UtcNow),nature=="RETURNABLE" ? SESS.NexaERP.Application.Common.BusinessCalendar.DateAt(DateTimeOffset.UtcNow).AddDays(7) : null,"Witness customer gate","machine-dispatch-001");
   user.Set(context.AccountsId,"SESS-14",Rev869ARoleCodes.AccountsManager);
   using(var denied=await client.PostAsJsonAsync("/api/v1/stores/machine-deliveries/",dispatch)) Assert.Equal(HttpStatusCode.Forbidden,denied.StatusCode);
   user.Set(context.StoresId,"SESS-35",Rev869ARoleCodes.StoresExecutive);

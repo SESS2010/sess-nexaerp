@@ -95,7 +95,7 @@ public sealed class OidcAccessTokenTests
     [Fact]
     public async Task Valid_unmapped_identity_gets_administrator_action_envelope_and_never_reaches_command()
     {
-        using var services = new ServiceCollection().AddLogging().AddOptions().BuildServiceProvider();
+        using var services = new ServiceCollection().AddSingleton<SESS.NexaERP.Application.Common.IDateTimeProvider, SESS.NexaERP.Infrastructure.SystemClock>().AddLogging().AddOptions().BuildServiceProvider();
         var context = new DefaultHttpContext { RequestServices = services };
         context.Response.Body = new MemoryStream();
         context.User = new ClaimsPrincipal(new ClaimsIdentity(
@@ -138,7 +138,7 @@ public sealed class OidcAccessTokenTests
 
     private static async Task AssertMfaForRole(string role, bool assured, int expected)
     {
-        using var services = new ServiceCollection().AddLogging().AddOptions().BuildServiceProvider();
+        using var services = new ServiceCollection().AddSingleton<SESS.NexaERP.Application.Common.IDateTimeProvider, SESS.NexaERP.Infrastructure.SystemClock>().AddLogging().AddOptions().BuildServiceProvider();
         var context = new DefaultHttpContext { RequestServices = services };
         context.Response.Body = new MemoryStream();
         context.User = new ClaimsPrincipal(new ClaimsIdentity([new Claim("sub", "employee")], "Bearer"));

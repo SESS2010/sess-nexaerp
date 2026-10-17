@@ -37,7 +37,7 @@ public sealed partial class EfProductionEngineeringService
             if (uom.MeasurementDimension != baseUom.MeasurementDimension)
                 throw new StoresValidationException("Line UOM is not comparable with the Item base UOM.");
             if (uom.Id != baseUom.Id) {
-                var today = DateOnly.FromDateTime(DateTime.UtcNow);
+                var today = db.BusinessDate;
                 var conversion = await db.UomConversions.AsNoTracking().AnyAsync(x =>
                     x.IsActive && x.ApprovalStatus == MasterApprovalStatuses.Approved &&
                     x.EffectiveFrom <= today && (!x.EffectiveTo.HasValue || x.EffectiveTo >= today) &&
