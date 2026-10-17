@@ -60,6 +60,17 @@ public sealed class EfTrackingService(NexaErpDbContext db, ICurrentUser user, IO
         var type = docType.Trim().ToUpperInvariant().Replace('-', '_');
         if (!TrackingDocTypes.All.Contains(type)) throw new ReportRequestException("Unknown document type.");
         var (organization, zone) = Identity();
+        // F24 actor-history access still belongs to the exact active login, not another identity for that employee.
+        if (type is "COMPARISON" or "PO")
+        {
+            var today = db.BusinessDate;
+            if (string.IsNullOrWhiteSpace(user.IdentityIssuer) || string.IsNullOrWhiteSpace(user.IdentitySubject) ||
+                !await db.EmployeeIdentityMappings.AsNoTracking().AnyAsync(i => i.EmployeeId == user.EmployeeId &&
+                    i.OrganizationId == organization && db.Companies.Any(c => c.Id == i.CompanyId && c.Code == organization && c.IsActive && c.Status == "ACTIVE") && i.IsActive &&
+                    i.Issuer == user.IdentityIssuer && i.Subject == user.IdentitySubject && i.EffectiveFrom <= today &&
+                    (!i.EffectiveTo.HasValue || i.EffectiveTo.Value >= today), ct))
+                throw new ReportAccessDeniedException();
+        }
         await using var command = await CommandAsync(
             "SELECT advance.tracking_history(@organization,@employee,@assignments,@report_timezone,@doc_type,@document)", organization, zone, ct);
         command.Parameters.AddWithValue("doc_type", type);

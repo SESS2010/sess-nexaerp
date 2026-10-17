@@ -17,9 +17,6 @@ public static class MachineDeliveryRequestValidation
     public const string NonReturnablePurpose = "CUSTOMER_PO_BASED";
     public const int MaxSignatureBytes = 5242880;
 
-    /// <summary>India Standard Time, the business day the database's own date rules use.</summary>
-    private static readonly TimeSpan IndiaStandardTime = TimeSpan.FromMinutes(330);
-
     public static void Dispatch(DispatchMachineRequest request, DateTimeOffset now)
     {
         var errors = new Errors();
@@ -42,7 +39,7 @@ public static class MachineDeliveryRequestValidation
         else if (purposes is not null && !purposes.Contains(request.Purpose, StringComparer.Ordinal))
             errors.Add(nameof(request.Purpose), $"Purpose for {nature} must be {string.Join(", ", purposes)}.");
 
-        var today = DateOnly.FromDateTime(now.ToOffset(IndiaStandardTime).DateTime);
+        var today = SESS.NexaERP.Application.Common.BusinessCalendar.DateAt(now);
         if (request.DispatchDate == default) errors.Add(nameof(request.DispatchDate), "DispatchDate is required.");
         else if (request.DispatchDate > today) errors.Add(nameof(request.DispatchDate), "DispatchDate cannot be in the future.");
 

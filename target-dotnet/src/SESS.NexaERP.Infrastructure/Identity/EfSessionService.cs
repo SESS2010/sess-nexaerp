@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using SESS.NexaERP.Domain.Identity;
 using SESS.NexaERP.Application.Authorization;
 using SESS.NexaERP.Application.Common;
 using SESS.NexaERP.Application.Identity;
@@ -26,6 +27,12 @@ public sealed class EfSessionService(NexaErpDbContext db, ICurrentUser currentUs
 
         var permissions = await pagePermissions.ResolveEffectivePermissionsAsync(
             currentUser.EffectiveRoleAssignments, company.Code, employee.Id, cancellationToken);
+        if (AccountsBackupIdentityPolicy.IsBackup(currentUser.IdentityAuthorityType))
+            permissions = permissions.Where(permission =>
+            {
+                var separator = permission.LastIndexOf(':');
+                return separator > 0 && AccountsBackupIdentityPolicy.AllowsPageAction(permission[..separator],permission[(separator + 1)..]);
+            }).ToArray();
         return new SessionMe(employee.Id, employee.EmployeeCode, employee.EmployeeName, company.Id, company.Code,
             currentUser.DepartmentId.Value, departmentCode, currentUser.RoleCodes.Order(StringComparer.Ordinal).ToArray(), permissions,
             currentUser.IdentityIssuer!, currentUser.IdentitySubject!, currentUser.FullAuthorityRoleCodes);

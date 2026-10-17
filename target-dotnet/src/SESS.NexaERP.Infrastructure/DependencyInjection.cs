@@ -32,6 +32,7 @@ public static class DependencyInjection
             npgsql => npgsql.MigrationsHistoryTable("__EFMigrationsHistory", DatabaseSchemas.Advance)));
         services.AddHealthChecks().AddDbContextCheck<NexaErpDbContext>("postgresql", tags: ["db"]);
         services.AddSingleton<IDateTimeProvider, SystemClock>();
+        services.AddScoped<OperationBusinessDate>();
         services.AddScoped<IAuditWriter, EfAuditWriter>();
         services.AddScoped<IAuditHistoryService, EfAuditHistoryService>();
         services.AddScoped<IPagePermissionService, EfPagePermissionService>();
@@ -73,6 +74,7 @@ public static class DependencyInjection
         services.AddScoped<IEstimatedBomService, EfEstimatedBomService>();
         services.AddScoped<IProductionEngineeringService, EfProductionEngineeringService>();
         services.AddScoped<IMaterialIssueService, EfMaterialIssueService>();
+        services.AddScoped<IEmployeeMirPortal, EfEmployeeMirPortal>();
         services.AddScoped<IVendorBillService, EfVendorBillService>();
         services.AddScoped<ISupplierInvoiceService, EfSupplierInvoiceService>();
         services.AddScoped<IMachineDeliveryService, EfMachineDeliveryService>();

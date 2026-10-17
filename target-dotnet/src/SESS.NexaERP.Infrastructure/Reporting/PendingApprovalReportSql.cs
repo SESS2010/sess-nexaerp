@@ -11,8 +11,8 @@ internal static class PendingApprovalReportSql
           WHERE assignment."EmployeeId"=@employee AND assignment."Id"=ANY(@assignments)
             AND assignment."AssignmentType"<>'SUPPORT'
             AND assignment."ApprovalStatus" IN ('Approved','SeedApproved')
-            AND assignment."EffectiveFrom"<=current_date
-            AND (assignment."EffectiveTo" IS NULL OR assignment."EffectiveTo">=current_date)
+            AND assignment."EffectiveFrom"<=@business_date
+            AND (assignment."EffectiveTo" IS NULL OR assignment."EffectiveTo">=@business_date)
         ),
         snapshot_documents AS (
           SELECT 'PR'::text AS kind,pr."Id" AS id,pr."PrNumber" AS number,pr."Status" AS status,
@@ -54,8 +54,8 @@ internal static class PendingApprovalReportSql
               (array_agg(m."ApproverRoleCode"))[1] AS role_code
             FROM advance.department_approval_mappings m
             WHERE m."CompanyId"=a.company_id AND m."DepartmentId"=pr."RequestingDepartmentId"
-              AND m."ApprovalRouteCode"='MANAGER' AND m."IsActive" AND m."EffectiveFrom"<=current_date
-              AND (m."EffectiveTo" IS NULL OR m."EffectiveTo">=current_date)
+              AND m."ApprovalRouteCode"='MANAGER' AND m."IsActive" AND m."EffectiveFrom"<=@business_date
+              AND (m."EffectiveTo" IS NULL OR m."EffectiveTo">=@business_date)
           ) mapping
           WHERE pr."Status"='Submitted'
         ),
@@ -132,8 +132,8 @@ internal static class PendingApprovalReportSql
             CASE WHEN q."VerificationStatus"='Verified' THEN
               (SELECT CASE WHEN count(*)=1 THEN array_agg(upper(btrim(p."PolicyValue"))) ELSE ARRAY[]::text[] END
                FROM advance.organization_policies p WHERE p."CompanyId"=a.company_id
-                 AND p."PolicyCode"='VENDOR_FINAL_APPROVER' AND p."IsActive" AND p."EffectiveFrom"<=current_date
-                 AND (p."EffectiveTo" IS NULL OR p."EffectiveTo">=current_date))
+                 AND p."PolicyCode"='VENDOR_FINAL_APPROVER' AND p."IsActive" AND p."EffectiveFrom"<=@business_date
+                 AND (p."EffectiveTo" IS NULL OR p."EffectiveTo">=@business_date))
             ELSE ARRAY(SELECT r."Code" FROM advance.role_page_permissions rp
               JOIN advance.page_definitions page ON page."Id"=rp."PageDefinitionId" AND page."IsActive"
               JOIN advance.roles r ON r."Id"=rp."RoleId" AND r."IsActive"
@@ -160,8 +160,8 @@ internal static class PendingApprovalReportSql
             CASE WHEN v."CommercialVerificationStatus"<>'Approved' OR v."RequiresReverification" THEN ARRAY['ACCOUNTS_HEAD']
               ELSE (SELECT CASE WHEN count(*)=1 THEN array_agg(upper(btrim(p."PolicyValue"))) ELSE ARRAY[]::text[] END
                FROM advance.organization_policies p WHERE p."CompanyId"=a.company_id
-                 AND p."PolicyCode"='VENDOR_FINAL_APPROVER' AND p."IsActive" AND p."EffectiveFrom"<=current_date
-                 AND (p."EffectiveTo" IS NULL OR p."EffectiveTo">=current_date)) END,
+                 AND p."PolicyCode"='VENDOR_FINAL_APPROVER' AND p."IsActive" AND p."EffectiveFrom"<=@business_date
+                 AND (p."EffectiveTo" IS NULL OR p."EffectiveTo">=@business_date)) END,
             CASE WHEN v."CommercialVerificationStatus"<>'Approved' OR v."RequiresReverification"
               THEN 'Commercial verification is required before final vendor approval.'
               ELSE 'Shared vendor master; the configured final approver must decide.' END
@@ -178,8 +178,8 @@ internal static class PendingApprovalReportSql
           WHERE e."ApprovalStatus" IN ('Submitted','PendingApproval')
             AND EXISTS(SELECT 1 FROM advance.employee_company_assignments membership
               WHERE membership."CompanyId"=a.company_id AND membership."EmployeeId"=e."Id"
-                AND membership."IsActive" AND membership."Status"='ACTIVE' AND membership."EffectiveFrom"<=current_date
-                AND (membership."EffectiveTo" IS NULL OR membership."EffectiveTo">=current_date))
+                AND membership."IsActive" AND membership."Status"='ACTIVE' AND membership."EffectiveFrom"<=@business_date
+                AND (membership."EffectiveTo" IS NULL OR membership."EffectiveTo">=@business_date))
 
 
           UNION ALL

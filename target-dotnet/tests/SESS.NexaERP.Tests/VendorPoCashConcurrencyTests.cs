@@ -30,9 +30,9 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             const string path = "/api/v1/accounts/vendor-financial-evidence/";
             var payables = await Get<VendorPayableView[]>(paymentHost.Client, path + "payables");
             var payable = Assert.Single(payables, x => x.PurchaseOrderId == po.Id);
-            var advance = new RecordVendorAdvanceRequest(po.Id, DateOnly.FromDateTime(DateTime.UtcNow),
+            var advance = new RecordVendorAdvanceRequest(po.Id, SESS.NexaERP.Application.Common.BusinessCalendar.DateAt(DateTimeOffset.UtcNow),
                 100m, "INR", "CASH-RACE-ADVANCE", "evidence/cash-race-advance", "cash-race-advance");
-            var payment = new RecordVendorPaymentRequest(po.VendorId, DateOnly.FromDateTime(DateTime.UtcNow),
+            var payment = new RecordVendorPaymentRequest(po.VendorId, SESS.NexaERP.Application.Common.BusinessCalendar.DateAt(DateTimeOffset.UtcNow),
                 payable.OutstandingValue, "INR", "CASH-RACE-PAYMENT", "evidence/cash-race-payment",
                 [new(payable.VendorBillId, payable.OutstandingValue)], "cash-race-payment");
             await using var db = new NexaErpDbContext(context.Options);

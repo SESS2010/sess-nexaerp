@@ -1,10 +1,12 @@
-﻿namespace SESS.NexaERP.Application.Common;
+namespace SESS.NexaERP.Application.Common;
 
 public sealed record EffectiveRoleAssignment(Guid AssignmentId, string RoleCode, string AssignmentType);
 public sealed record ResolvedRoleAuthority(Guid AssignmentId, string RoleCode, string AssignmentType);
 
 public interface ICurrentUser
 {
+    string IdentityAuthorityType => "HUMAN";
+    string? EmployeeCode => null;
     string LoginId { get; }
     string RoleCode { get; }
     IReadOnlyList<string> RoleCodes =>

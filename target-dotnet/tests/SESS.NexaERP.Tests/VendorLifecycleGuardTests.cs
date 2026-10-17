@@ -48,7 +48,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         server.Execute("vendor-lifecycle.sql", migrator.GenerateScript("0", model.Database.GetMigrations().Last()));
 
         await using var db = new NexaErpDbContext(new DbContextOptionsBuilder<NexaErpDbContext>().UseNpgsql(server.ConnectionString).Options);
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var today = SESS.NexaERP.Application.Common.BusinessCalendar.DateAt(DateTimeOffset.UtcNow);
         var vendor = new Vendor
         {
             VendorCode = "R1-VENDOR", Name = "R1 Vendor", LegalVendorName = "R1 Vendor Pvt Ltd", VendorType = "MANUFACTURER",

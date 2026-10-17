@@ -312,6 +312,29 @@ internal static class DatabasePrincipalProvisioningSql
 
         DO $stores_acl$
         BEGIN
+          IF to_regprocedure('advance.accounts_backup_step_actor(uuid,uuid,text,integer,jsonb,uuid,uuid,text,uuid)') IS NOT NULL THEN
+            ALTER FUNCTION advance.accounts_backup_step_actor(uuid,uuid,text,integer,jsonb,uuid,uuid,text,uuid) OWNER TO nexa_erp_owner;
+            REVOKE ALL ON FUNCTION advance.accounts_backup_step_actor(uuid,uuid,text,integer,jsonb,uuid,uuid,text,uuid) FROM PUBLIC,nexa_erp_bootstrap,nexa_erp_migration;
+            GRANT EXECUTE ON FUNCTION advance.accounts_backup_step_actor(uuid,uuid,text,integer,jsonb,uuid,uuid,text,uuid) TO nexa_erp_runtime;
+          END IF;
+          IF to_regprocedure('advance.accounts_identity_role_allowed(text,uuid,text,text,text,text,uuid)') IS NOT NULL THEN
+            ALTER FUNCTION advance.accounts_identity_role_allowed(text,uuid,text,text,text,text,uuid) OWNER TO nexa_erp_owner;
+            REVOKE ALL ON FUNCTION advance.accounts_identity_role_allowed(text,uuid,text,text,text,text,uuid) FROM PUBLIC,nexa_erp_bootstrap,nexa_erp_migration;
+            GRANT EXECUTE ON FUNCTION advance.accounts_identity_role_allowed(text,uuid,text,text,text,text,uuid) TO nexa_erp_runtime;
+          END IF;
+          IF to_regprocedure('advance.guard_accounts_backup_identity()') IS NOT NULL THEN
+            ALTER FUNCTION advance.guard_accounts_backup_identity() OWNER TO nexa_erp_owner;
+            REVOKE ALL ON FUNCTION advance.guard_accounts_backup_identity() FROM PUBLIC,nexa_erp_bootstrap,nexa_erp_migration;
+            GRANT EXECUTE ON FUNCTION advance.guard_accounts_backup_identity() TO nexa_erp_runtime;
+          END IF;
+          IF to_regprocedure('advance.business_event_date(timestamptz)') IS NOT NULL THEN
+            REVOKE ALL ON FUNCTION advance.business_calendar_cutover(),advance.business_event_date(timestamptz) FROM PUBLIC,nexa_erp_bootstrap,nexa_erp_migration;
+            GRANT EXECUTE ON FUNCTION advance.business_calendar_cutover(),advance.business_event_date(timestamptz) TO nexa_erp_runtime;
+          END IF;
+          IF to_regprocedure('advance.current_business_date()') IS NOT NULL THEN
+            REVOKE ALL ON FUNCTION advance.current_business_date() FROM PUBLIC,nexa_erp_bootstrap,nexa_erp_migration;
+            GRANT EXECUTE ON FUNCTION advance.current_business_date() TO nexa_erp_runtime;
+          END IF;
           IF to_regprocedure('advance.stores_p1_actor_has_role(uuid,uuid,text,date)') IS NOT NULL THEN
             EXECUTE 'REVOKE ALL ON FUNCTION advance.stores_p1_actor_has_role(uuid,uuid,text,date) FROM PUBLIC,nexa_erp_bootstrap,nexa_erp_migration';
             EXECUTE 'GRANT EXECUTE ON FUNCTION advance.stores_p1_actor_has_role(uuid,uuid,text,date) TO nexa_erp_runtime';
@@ -600,6 +623,50 @@ internal static class DatabasePrincipalProvisioningSql
           IF (SELECT count(*) FROM pg_catalog.pg_roles
               WHERE rolname IN ('nexa_erp_owner','nexa_erp_migration','nexa_erp_bootstrap','nexa_erp_runtime'))<>4 THEN
             RAISE EXCEPTION 'Exactly four managed NexaERP roles are required.';
+          END IF;
+          IF to_regprocedure('advance.accounts_backup_step_actor(uuid,uuid,text,integer,jsonb,uuid,uuid,text,uuid)') IS NOT NULL AND NOT EXISTS(
+            SELECT 1 FROM pg_proc p WHERE p.oid=to_regprocedure('advance.accounts_backup_step_actor(uuid,uuid,text,integer,jsonb,uuid,uuid,text,uuid)')
+              AND p.proowner='nexa_erp_owner'::regrole AND p.prosecdef AND p.proconfig @> ARRAY['search_path=pg_catalog, advance']
+              AND has_function_privilege('nexa_erp_runtime',p.oid,'EXECUTE')
+              AND NOT has_function_privilege('nexa_erp_bootstrap',p.oid,'EXECUTE') AND NOT has_function_privilege('nexa_erp_migration',p.oid,'EXECUTE')
+              AND NOT EXISTS(SELECT 1 FROM aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a WHERE a.grantee=0 AND a.privilege_type='EXECUTE')) THEN
+            RAISE EXCEPTION 'Named accounts workflow helper requires owner, SECURITY DEFINER, fixed search_path and runtime-only execute.';
+          END IF;
+          IF (to_regprocedure('advance.guard_accounts_backup_identity()') IS NOT NULL OR
+              to_regprocedure('advance.accounts_identity_role_allowed(text,uuid,text,text,text,text,uuid)') IS NOT NULL) AND
+             (SELECT count(*) FROM pg_proc p WHERE p.oid IN (
+                 to_regprocedure('advance.guard_accounts_backup_identity()'),
+                 to_regprocedure('advance.accounts_identity_role_allowed(text,uuid,text,text,text,text,uuid)'))
+               AND p.proowner='nexa_erp_owner'::regrole AND p.prosecdef
+               AND p.proconfig @> ARRAY['search_path=pg_catalog, advance']
+               AND has_function_privilege('nexa_erp_runtime',p.oid,'EXECUTE')
+               AND NOT has_function_privilege('nexa_erp_bootstrap',p.oid,'EXECUTE')
+               AND NOT has_function_privilege('nexa_erp_migration',p.oid,'EXECUTE')
+               AND NOT EXISTS(SELECT 1 FROM aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a
+                 WHERE a.grantee=0 AND a.privilege_type='EXECUTE'))<>2 THEN
+            RAISE EXCEPTION 'Named accounts identity functions require exact owner, SECURITY DEFINER, fixed search_path and runtime-only execute.';
+          END IF;
+          IF (to_regprocedure('advance.business_event_date(timestamptz)') IS NOT NULL OR
+              to_regprocedure('advance.business_calendar_cutover()') IS NOT NULL) AND
+            (SELECT count(*) FROM pg_proc p WHERE p.oid IN (to_regprocedure('advance.business_event_date(timestamptz)'),to_regprocedure('advance.business_calendar_cutover()'))
+              AND p.proowner='nexa_erp_owner'::regrole AND NOT p.prosecdef AND p.provolatile='i'
+              AND p.proconfig @> ARRAY['search_path=pg_catalog, advance']
+              AND has_function_privilege('nexa_erp_runtime',p.oid,'EXECUTE')
+              AND NOT has_function_privilege('nexa_erp_bootstrap',p.oid,'EXECUTE')
+              AND NOT has_function_privilege('nexa_erp_migration',p.oid,'EXECUTE')
+              AND NOT EXISTS(SELECT 1 FROM aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a WHERE a.grantee=0 AND a.privilege_type='EXECUTE'))<>2 THEN
+            RAISE EXCEPTION 'Kolkata recorded event calendar ownership or execute ACL is invalid.';
+          END IF;
+          IF to_regprocedure('advance.current_business_date()') IS NOT NULL AND NOT EXISTS(
+            SELECT 1 FROM pg_proc p WHERE p.oid=to_regprocedure('advance.current_business_date()')
+              AND p.proowner='nexa_erp_owner'::regrole AND NOT p.prosecdef AND p.provolatile='s'
+              AND p.proconfig @> ARRAY['search_path=pg_catalog, advance']
+              AND has_function_privilege('nexa_erp_runtime',p.oid,'EXECUTE')
+              AND NOT has_function_privilege('nexa_erp_bootstrap',p.oid,'EXECUTE')
+              AND NOT has_function_privilege('nexa_erp_migration',p.oid,'EXECUTE')
+              AND NOT EXISTS(SELECT 1 FROM aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a
+                WHERE a.grantee=0 AND a.privilege_type='EXECUTE')) THEN
+            RAISE EXCEPTION 'Kolkata business calendar ownership or execute ACL is invalid.';
           END IF;
           IF EXISTS(SELECT 1 FROM pg_catalog.pg_roles
                     WHERE rolname IN ('nexa_erp_owner','nexa_erp_migration','nexa_erp_bootstrap','nexa_erp_runtime')

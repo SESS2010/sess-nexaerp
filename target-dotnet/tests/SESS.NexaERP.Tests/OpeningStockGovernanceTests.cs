@@ -65,6 +65,8 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         server.Execute("opening-stock-principal-rerun-acl.sql", OpeningStockPrincipalAssertions);
         server.Execute("opening-stock-witness.sql", WitnessSql);
         server.Execute("opening-stock-report-schema.sql",migrator.GenerateScript(target,migrations[^1]));
+        // Match the installer sequence: newly migrated functions receive their production owner and ACLs.
+        Assert.Equal(0, await DatabasePrincipalCommand.RunAsync(["database-principals", "provision"]));
         server.Execute("opening-stock-report-login.sql","""UPDATE advance.employees SET "LoginEnabled"=true WHERE "EmployeeCode" IN ('SESS-01','SESS-14');""");
         await using var ownerDb = new NexaErpDbContext(new DbContextOptionsBuilder<NexaErpDbContext>().UseNpgsql(server.ConnectionString).Options);
         var director = await ownerDb.Employees.SingleAsync(row => row.EmployeeCode == "SESS-01");

@@ -97,7 +97,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 && row.QuantityBase == 1m && row.InventorySerialId != null)
             .Select(row => new { row.Id,row.MaterialIssueId }).SingleAsync());
         var physicalMovementsBefore = await Query(options,db => db.StockMovements.CountAsync());
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var today = await Query(options, db => Task.FromResult(db.BusinessDate));
         async Task<FifoInput> Prepare(Guid employeeId, string role, string suffix, decimal? quantity=null, Guid? ownership=null)
         {
             var subject = await Query(options, db => db.EmployeeIdentityMappings

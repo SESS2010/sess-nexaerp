@@ -69,5 +69,28 @@ internal static class InstalledFunctionSql
         END $check$;
         """);
 
+    // New migrations may preserve the complete installed SQL/plpgsql definition, including all settings.
+    // Existing overloads and therefore historical migration scripts remain unchanged.
+    internal static string Rewrite(string signature, bool preserveDefinition, params (string From, string To, int Occurrences)[] replacements)
+    {
+        if (!preserveDefinition) throw new ArgumentException("Use the historical overload for legacy rewrites.", nameof(preserveDefinition));
+        var guards = string.Join("\n     OR ", replacements.Select(r =>
+            $"(length(body)-length(replace(body,{Quote(r.From)},'')))/length({Quote(r.From)}) <> {r.Occurrences}"));
+        var rewritten = "body";
+        foreach (var (from, to, _) in replacements) rewritten = $"replace({rewritten},{Quote(from)},{Quote(to)})";
+        return MigrationText.Lf($$"""
+            DO $rewrite$
+            DECLARE body text; definition text;
+            BEGIN
+              SELECT replace(prosrc,E'\r\n',E'\n'),replace(pg_get_functiondef(oid),E'\r\n',E'\n')
+                INTO STRICT body,definition FROM pg_proc WHERE oid='{{signature}}'::regprocedure;
+              IF {{guards}} OR
+                 (length(definition)-length(replace(definition,body,'')))/nullif(length(body),0) IS DISTINCT FROM 1 THEN
+                RAISE EXCEPTION '{{signature}} is not at the expected installed definition; refusing to rewrite it.';
+              END IF;
+              EXECUTE replace(definition,body,{{rewritten}});
+            END $rewrite$;
+            """);
+    }
     internal static string Quote(string clause) => "'" + clause.Replace("'", "''", StringComparison.Ordinal) + "'";
 }

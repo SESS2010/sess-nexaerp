@@ -132,7 +132,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             if(context.Stage=="ADVANCES")
             {
                 var localDate=ReportCalendarOptions.DateInZone(page.GeneratedAt,TimeZoneInfo.FindSystemTimeZoneById(page.TimeZone));
-                Assert.Equal(localDate.DayNumber-DateOnly.FromDateTime(DateTime.UtcNow).AddDays(-2).DayNumber,advances.OldestAgeDays);
+                Assert.Equal(localDate.DayNumber-SESS.NexaERP.Application.Common.BusinessCalendar.DateAt(DateTimeOffset.UtcNow).AddDays(-2).DayNumber,advances.OldestAgeDays);
                 var vendor = Assert.Single(page.Rows.Select(x=>x.VendorId).Distinct());
                 var filtered = await service.GetAsync(new(Queue:"vendor-advances",VendorId:vendor,Currency:" inr "),default);
                 Assert.Equal(2,filtered.TotalRows);

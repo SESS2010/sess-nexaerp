@@ -186,7 +186,7 @@ public sealed partial class EfJobOrderService(NexaErpDbContext db, ICurrentUser 
     }
     private async Task<string> NextNumberAsync(Guid companyId, string organization, CancellationToken ct)
     {
-        var today = DateOnly.FromDateTime(DateTime.UtcNow); var year = today.Month >= 4 ? $"{today.Year % 100:00}-{(today.Year + 1) % 100:00}" : $"{(today.Year - 1) % 100:00}-{today.Year % 100:00}";
+        var today = db.BusinessDate; var year = today.Month >= 4 ? $"{today.Year % 100:00}-{(today.Year + 1) % 100:00}" : $"{(today.Year - 1) % 100:00}-{today.Year % 100:00}";
         var lockKey = $"NUMBER:{organization}:{year}:JO"; await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(hashtextextended({lockKey},0))", ct);
         var sequence = await db.PurchaseNumberSequences.SingleOrDefaultAsync(x => x.CompanyId == companyId && x.OrganizationId == organization && x.FinancialYear == year && x.Prefix == "JO" && x.IsActive, ct);
         if (sequence is null) { sequence = new PurchaseNumberSequence { CompanyId = companyId, OrganizationId = organization, FinancialYear = year, Prefix = "JO", CreatedBy = user.LoginId }; db.PurchaseNumberSequences.Add(sequence); }

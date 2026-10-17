@@ -56,7 +56,7 @@ public sealed class EfTrackingDigestQuery(NexaErpDbContext db, IOptions<ReportCa
     /// </summary>
     public async Task<IReadOnlyList<DigestRecipient>> RecipientsAsync(Guid companyId, IReadOnlyCollection<string> roleCodes, CancellationToken ct)
     {
-        var today = DateOnly.FromDateTime(DateTime.UtcNow.AddMinutes(330));
+        var today = db.BusinessDate;
         var roles = roleCodes.Select(r => r.Trim().ToUpperInvariant()).Distinct().ToArray();
         var rows = await db.EmployeeRoleAssignments.AsNoTracking()
             .Where(a => a.CompanyId == companyId && roles.Contains(a.Role!.Code) && a.Role.IsActive

@@ -91,7 +91,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         {
             Content = JsonContent.Create(new CreateVendorQualificationRequest("SESS_PVT_LTD",
                 "TRIAL-VEN-001", categoryCode, "EXPIRED-ROLE-REFUSAL",
-                DateOnly.FromDateTime(DateTime.UtcNow), null, "Expired assignment must be refused"))
+                SESS.NexaERP.Application.Common.BusinessCalendar.DateAt(DateTimeOffset.UtcNow), null, "Expired assignment must be refused"))
         };
         request.Headers.Add("Idempotency-Key", "qualification-expired-role-refusal");
         using var response = await host.Client.SendAsync(request);

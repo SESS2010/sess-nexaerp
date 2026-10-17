@@ -29,7 +29,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
     {
         var companyId = Guid.Parse("70000000-0000-0000-0000-000000000001");
         var employeeId = context.SecondOperatorId;
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var today = await Query(context.Options, db => Task.FromResult(db.BusinessDate));
         async Task<Dictionary<string,EffectiveRoleAssignment>> CurrentAssignments() =>
             await Query(context.Options, async db => (await db.EmployeeRoleAssignments.AsNoTracking().Include(row => row.Role)
                 .Where(row => row.CompanyId == companyId && row.EffectiveFrom <= today

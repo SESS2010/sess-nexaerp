@@ -50,7 +50,7 @@ public static partial class Rev869AConfigurationEndpoints
 
             var before = new { mapping.IsActive, mapping.EffectiveTo, mapping.Version };
             mapping.IsActive = false;
-            var today = DateOnly.FromDateTime(DateTime.UtcNow);
+            var today = db.BusinessDate;
             mapping.EffectiveTo = mapping.EffectiveFrom > today ? mapping.EffectiveFrom : today;
             mapping.UpdatedAt = DateTimeOffset.UtcNow;
             mapping.UpdatedBy = user.LoginId;

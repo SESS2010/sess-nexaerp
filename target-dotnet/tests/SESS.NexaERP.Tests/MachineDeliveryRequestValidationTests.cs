@@ -12,6 +12,19 @@ namespace SESS.NexaERP.Tests;
 /// </summary>
 public sealed class MachineDeliveryRequestValidationTests
 {
+    [Theory]
+    [InlineData("2026-10-17T18:29:59Z", false)]
+    [InlineData("2026-10-17T18:30:00Z", true)]
+    [InlineData("2026-10-17T23:59:59Z", true)]
+    [InlineData("2026-10-18T00:00:00Z", true)]
+    public void DispatchFutureDateUsesTheSharedKolkataBoundary(string instant, bool allowed)
+    {
+        var request = NonReturnable() with { DispatchDate = new DateOnly(2026, 10, 18) };
+        if (allowed) MachineDeliveryRequestValidation.Dispatch(request, DateTimeOffset.Parse(instant));
+        else Assert.Throws<StoresValidationException>(() =>
+            MachineDeliveryRequestValidation.Dispatch(request, DateTimeOffset.Parse(instant)));
+    }
+
     // 30 Sep 2026 12:00 IST.
     private static readonly DateTimeOffset Now = new(2026, 9, 30, 6, 30, 0, TimeSpan.Zero);
     private static readonly DateOnly Today = new(2026, 9, 30);

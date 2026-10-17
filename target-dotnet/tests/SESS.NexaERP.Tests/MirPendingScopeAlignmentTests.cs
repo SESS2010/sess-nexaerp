@@ -74,7 +74,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             await using var source = new NexaErpDbContext(context.Options);
             var company = await source.Companies.SingleAsync(x => x.Code == "SESS_PVT_LTD");
             var employee = await source.Employees.SingleAsync(x => x.EmployeeCode == "SESS-41");
-            var today = DateOnly.FromDateTime(DateTime.UtcNow);
+            var today = source.BusinessDate;
             var assignments = await source.EmployeeRoleAssignments.AsNoTracking().Include(x => x.Role)
                 .Where(x => x.CompanyId == company.Id && x.EmployeeId == employee.Id
                     && (x.ApprovalStatus == "Approved" || x.ApprovalStatus == "SeedApproved")

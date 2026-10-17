@@ -244,7 +244,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Actor("SESS-35", "STORES_EXECUTIVE");
         var candidates = await Get<PagedResponse<MachineDeliveryJobOrderCandidate>>(client, "/api/v1/stores/machine-deliveries/job-orders?search=" + Uri.EscapeDataString(job.MachineSerial));
         Assert.Equal(job.Id, Assert.Single(candidates.Items).JobOrderId);
-        var dispatchDay = DateOnly.FromDateTime(DateTime.Now);
+        var dispatchDay = SESS.NexaERP.Application.Common.BusinessCalendar.DateAt(DateTimeOffset.UtcNow);
         var dispatch = await Post<JsonElement>(client, "/api/v1/stores/machine-deliveries/", new DispatchMachineRequest(job.Id, "GO-LIVE-MDC-001", "NON_RETURNABLE", "CUSTOMER_PO_BASED",
             dispatchDay, null, "Customer site, Bengaluru", "go-live-machine-dispatch", " TN 01 AB 1234 ", "SESS own vehicle", "123456789012", dispatchDay));
         var deliveryId = dispatch.GetProperty("Id").GetGuid();
@@ -275,7 +275,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         string Provenance(CompanyReportPage page, Guid fitmentId) => Assert.Single(page.Rows, row => row.TryGetProperty("fitmentId", out var f) && f.ValueKind == JsonValueKind.String && f.GetGuid() == fitmentId && row.GetProperty("evidencePart").GetInt32() == 0).GetProperty("provenance").GetString()!;
         // The dossier tells declared from proved: what SESS asserted at opening stock, what this system verified, and what it authorised.
         Assert.Equal("Bill INV-2024-0892 - declared at opening stock, not verified in this system", Provenance(dossier, declaredFitment.Id));
-        Assert.Equal($"Opening stock, authorised {DateTime.Now.ToString("dd MMM yyyy", System.Globalization.CultureInfo.InvariantCulture)} by SESS-01", Provenance(dossier, openingFitment.Id));
+        Assert.Equal($"Opening stock, authorised {SESS.NexaERP.Application.Common.BusinessCalendar.DateAt(DateTimeOffset.UtcNow).ToString("dd MMM yyyy", System.Globalization.CultureInfo.InvariantCulture)} by SESS-01", Provenance(dossier, openingFitment.Id));
         Assert.Equal($"GRN {receipt.Grn.GrnNumber} - bill not yet accepted", Provenance(dossier, grnFitment.Id));
 
         // 4. Vendor bill from the GRN -> landed cost -> advance -> payment. GRNI shows the receipt until the bill is accepted.

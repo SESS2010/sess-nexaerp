@@ -239,3 +239,5 @@ export interface InventoryConcessionResult {
   Version: number
   Replayed: boolean
 }
+
+export interface InventoryConcessionListItem { Id: string; ConcessionNumber: string; Status: string; Quantity: number; CreatedAt: string }
