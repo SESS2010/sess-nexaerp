@@ -163,7 +163,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             Assert.Equal(businessStart, layer.ReceivedAt);
             var custodyId = await db.StockMovements.Where(m => m.OpeningStockLineId == layer.OpeningStockLineId)
                 .Select(m => m.CustodyAssignmentId).SingleAsync();
-            Assert.NotNull(custodyId);
+            Assert.NotEqual(Guid.Empty, custodyId);
             Assert.Equal(businessStart, (await db.InventoryCustodyAssignments.SingleAsync(c => c.Id == custodyId)).EffectiveFrom);
             // A later receipt must follow opening, even in the UTC/IST gap, independent of wall clock.
             foreach (var offset in new[] { TimeSpan.Zero, TimeSpan.FromHours(3),

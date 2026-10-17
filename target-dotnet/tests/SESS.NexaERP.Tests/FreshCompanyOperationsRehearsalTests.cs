@@ -492,7 +492,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         Assert.Equal("RECEIPT_IN", addition.MovementLeg); Assert.Equal(correction.Lines.Single().Id, addition.OriginStockAdjustmentLineId);
         var adjustmentStart = BusinessCalendar.StartOfDate(today);
         Assert.Equal(adjustmentStart, layer.ReceivedAt);
-        Assert.NotNull(addition.CustodyAssignmentId);
+        Assert.NotEqual(Guid.Empty, addition.CustodyAssignmentId);
         Assert.Equal(adjustmentStart, await Query(options, db => db.InventoryCustodyAssignments
             .Where(c => c.Id == addition.CustodyAssignmentId).Select(c => c.EffectiveFrom).SingleAsync()));
         foreach (var offset in new[] { TimeSpan.Zero, TimeSpan.FromHours(3),
