@@ -322,9 +322,9 @@ public sealed partial class EfRev869BPurchaseService : IRev869BPurchaseService
         tax.PlaceOfSupplyStateCode, tax.VendorRegistrationType, tax.GstRate, tax.CgstRate, tax.SgstRate,
         tax.IgstRate, tax.CessRate, tax.IsExempt, tax.IsReverseCharge, tax.CurrencyCode, tax.RoundingScale,
         tax.EffectiveFrom, tax.EffectiveTo, tax.ApprovalStatus, tax.IsActive)
-        { ItcEligibility = tax.ItcEligibility, RecoverableTaxPercent = tax.RecoverableTaxPercent };
+        { ItcEligibility = tax.ItcEligibility, RecoverableTaxPercent = tax.RecoverableTaxPercent, QuotationDateBasis = SESS.NexaERP.Domain.Common.BusinessDatePolicy.KolkataV1 };
 
-    private static (Rev869BCommercialBreakdown Breakdown, Rev869BTaxRuleSnapshot Tax) Recalculate(VendorQuotationLine line, string organization, DateOnly quotationReceivedDate)
+    private static (Rev869BCommercialBreakdown Breakdown, Rev869BTaxRuleSnapshot Tax) Recalculate(VendorQuotationLine line, string organization, DateTimeOffset quotationReceivedAt)
     {
         Rev869BTaxRuleSnapshot tax;
         try { tax = JsonSerializer.Deserialize<Rev869BTaxRuleSnapshot>(line.TaxRuleSnapshotJson, JsonOptions) ?? throw new JsonException(); }
@@ -338,7 +338,7 @@ public sealed partial class EfRev869BPurchaseService : IRev869BPurchaseService
         var stored = new Rev869BCommercialBreakdown(line.TaxableValue, line.DiscountValue, line.CgstValue, line.SgstValue, line.IgstValue, line.CessValue, line.PackingForwarding, line.Freight, line.Insurance, line.OtherCharges, line.RoundOff, line.TotalPayableValue)
         { GrossAmount = decimal.Round(line.Quantity * line.UnitRate, tax.RoundingScale, MidpointRounding.AwayFromZero), AssessableValue = Rev869BCommercialCalculator.Add(decimal.Round(line.Quantity * line.UnitRate, tax.RoundingScale, MidpointRounding.AwayFromZero), line.PackingForwarding, line.Freight, line.Insurance, line.OtherCharges), HeaderDiscountValue = line.HeaderDiscountValue, CurrencyCode = tax.CurrencyCode, ExchangeRate = 1m };
         Rev869BCommercialBreakdown calculation;
-        try { calculation = Rev869BCommercialCalculator.Reconcile(input, stored, tax, quotationReceivedDate); }
+        try { calculation = Rev869BCommercialCalculator.Reconcile(input, stored, tax, SESS.NexaERP.Domain.Common.BusinessDatePolicy.EventDate(quotationReceivedAt, tax.QuotationDateBasis)); }
         catch (InvalidOperationException ex) { throw new Rev869BConflictException(ex.Message); }
         return (calculation, tax);
     }
@@ -379,7 +379,7 @@ public sealed partial class EfRev869BPurchaseService : IRev869BPurchaseService
             ComparisonCommercialSnapshot snapshot;
             try { snapshot = JsonSerializer.Deserialize<ComparisonCommercialSnapshot>(comparisonLine.CommercialSnapshotJson, JsonOptions) ?? throw new JsonException(); }
             catch (JsonException) { throw new Rev869BConflictException("Comparison commercial snapshot is malformed."); }
-            var calculated = Recalculate(line, comparison.OrganizationId, DateOnly.FromDateTime(quote.ReceivedAt.UtcDateTime));
+            var calculated = Recalculate(line, comparison.OrganizationId, quote.ReceivedAt);
             var expectedJson = ComparisonSnapshotJson(comparison, quote, line, calculated);
             var expected = JsonSerializer.Deserialize<ComparisonCommercialSnapshot>(expectedJson, JsonOptions)!;
             if (snapshot != expected || comparisonLine.TotalPayableValue != calculated.Breakdown.TotalPayableValue)

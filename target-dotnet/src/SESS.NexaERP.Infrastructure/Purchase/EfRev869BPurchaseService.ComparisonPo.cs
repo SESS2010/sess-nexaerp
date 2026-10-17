@@ -34,7 +34,7 @@ public sealed partial class EfRev869BPurchaseService
         comparison.CompanyId = rfq.CompanyId;
         foreach (var quote in quotes) foreach (var line in quote.Lines)
         {
-            var recalculated = Recalculate(line, organization, DateOnly.FromDateTime(quote.ReceivedAt.UtcDateTime));
+            var recalculated = Recalculate(line, organization, quote.ReceivedAt);
             comparison.Lines.Add(new CommercialComparisonLine { VendorQuotationLineId = line.Id, VendorId = quote.VendorId, TechnicalComplianceSnapshot = Rev869BStatuses.TechnicallyCompliant, CommercialSnapshotJson = ComparisonSnapshotJson(comparison, quote, line, recalculated), DeliverySnapshot = line.PromisedDeliveryDate.ToString("yyyy-MM-dd"), WarrantySnapshot = quote.WarrantyTermsSnapshot, PaymentTermsSnapshot = quote.PaymentTermsSnapshot, TotalPayableValue = recalculated.Breakdown.TotalPayableValue, CreatedBy = user.LoginId });
         }
         foreach (var comparisonLine in comparison.Lines) comparisonLine.CompanyId = comparison.CompanyId;
@@ -68,7 +68,7 @@ public sealed partial class EfRev869BPurchaseService
         if (comparison.IsSingleSource && string.IsNullOrWhiteSpace(justification)) throw new Rev869BValidationException("Single-source recommendation justification is required.");
         var newVersion = checked(request.Version + 1); var remarks = RequiredRemarks(request.RecommendationRemarks);
         var recalculations = quote.Lines.ToDictionary(x => x.Id,
-            x => Recalculate(x, organization, DateOnly.FromDateTime(quote.ReceivedAt.UtcDateTime)));
+            x => Recalculate(x, organization, quote.ReceivedAt));
         var total = Rev869BCommercialCalculator.Add(recalculations.Values.Select(x => x.Breakdown.TotalPayableValue).ToArray());
         var requestingDepartmentId = await db.RequestForQuotations.AsNoTracking()
             .Where(x => x.Id == comparison.RequestForQuotationId && x.OrganizationId == organization)
@@ -167,7 +167,7 @@ public sealed partial class EfRev869BPurchaseService
         foreach (var ql in quote.Lines)
         {
             var source = ql.RequestForQuotationLine!; var ordered = await OrderedQuantityAsync(source.PurchaseRequisitionLineId, ct); var remaining = source.ApprovedQuantitySnapshot - ordered; if (ql.Quantity > remaining) throw new Rev869BConflictException("Cumulative PO quantity exceeds approved outstanding quantity."); var comparisonLine = c.Lines.SingleOrDefault(x => x.VendorQuotationLineId == ql.Id) ?? throw new Rev869BConflictException("Selected quotation line is outside comparison.");
-            var recalculated = Recalculate(ql, c.OrganizationId, DateOnly.FromDateTime(quote.ReceivedAt.UtcDateTime)); var calc = recalculated.Breakdown;
+            var recalculated = Recalculate(ql, c.OrganizationId, quote.ReceivedAt); var calc = recalculated.Breakdown;
             var input = new Rev869BCommercialInput(ql.Quantity, ql.UnitRate, ql.DiscountValue, ql.PackingForwarding, ql.Freight, ql.Insurance, ql.OtherCharges, recalculated.Tax.CgstRate, recalculated.Tax.SgstRate, recalculated.Tax.IgstRate, recalculated.Tax.CessRate, ql.RoundOff, recalculated.Tax.RoundingScale)
             { HeaderDiscountValue = ql.HeaderDiscountValue, CurrencyCode = quote.CurrencyCode, ExchangeRate = 1m };
             var immutable = new Rev869BPoCommercialSnapshot(quote.Id, ql.Id, rfq.Id, c.Id, quote.VendorId, c.OrganizationId,
