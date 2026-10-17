@@ -26,7 +26,7 @@ public static partial class PurchaseRequisitionEndpoints
         if (existingCheck is not null) return Results.Ok(new { existingCheck.CheckNumber, existingCheck.ResultStatus });
         await SESS.NexaERP.Infrastructure.Authorization.AccountsDocumentConflictGuard.RequireRequisitionDutyAsync(
             db,user,pr,SESS.NexaERP.Domain.Authorization.AccountsDocumentDuty.Recorded,ct);
-        var check = new StockAvailabilityCheck { CompanyId = pr.CompanyId, PurchaseRequisitionId = pr.Id, PurchaseRequisition = pr, CheckNumber = $"SC-{pr.PrNumber}-{DateTimeOffset.UtcNow:yyyyMMddHHmmss}", CheckedBy = user.LoginId, Remarks = request.Remarks.Trim(), CorrelationId = correlation, CreatedBy = user.LoginId };
+        var check = new StockAvailabilityCheck { CompanyId = pr.CompanyId, PurchaseRequisitionId = pr.Id, PurchaseRequisition = pr, CheckNumber = $"SC-{pr.PrNumber}-{BusinessCalendar.IdentifierTimestamp(DateTimeOffset.UtcNow)}", CheckedBy = user.LoginId, Remarks = request.Remarks.Trim(), CorrelationId = correlation, CreatedBy = user.LoginId };
         var anyShortage = false;
         var anyReservation = false;
         foreach (var line in pr.Lines.OrderBy(x => x.LineNumber))

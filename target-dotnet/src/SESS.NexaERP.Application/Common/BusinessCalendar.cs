@@ -6,6 +6,15 @@ public static class BusinessCalendar
     public static DateOnly DateAt(DateTimeOffset instant) =>
         SESS.NexaERP.Domain.Common.BusinessDatePolicy.KolkataDate(instant);
 
+    /// <summary>Culture-independent date in new document numbers; retained numbers stay unchanged.</summary>
+    public static string IdentifierDate(DateOnly date) =>
+        date.ToString("yyyyMMdd", System.Globalization.CultureInfo.InvariantCulture);
+
+    /// <summary>Kolkata wall-clock suffix for new identifiers; audit instants remain UTC.</summary>
+    public static string IdentifierTimestamp(DateTimeOffset instant) =>
+        SESS.NexaERP.Domain.Common.BusinessDatePolicy.KolkataTime(instant)
+            .ToString("yyyyMMddHHmmss", System.Globalization.CultureInfo.InvariantCulture);
+
     public static DateTimeOffset StartOfDate(DateOnly date) =>
         SESS.NexaERP.Domain.Common.BusinessDatePolicy.KolkataStartOfDay(date);
 }

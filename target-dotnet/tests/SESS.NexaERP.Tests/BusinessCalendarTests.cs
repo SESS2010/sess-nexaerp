@@ -19,6 +19,28 @@ public sealed class BusinessCalendarTests
     public void ConvertsInstantToKolkataBusinessDate(string instant, string expected) =>
         Assert.Equal(DateOnly.Parse(expected), BusinessCalendar.DateAt(DateTimeOffset.Parse(instant)));
 
+    [Theory]
+    [InlineData("2026-10-16T18:29:59Z", "20261016", "20261016235959")]
+    [InlineData("2026-10-16T18:30:00Z", "20261017", "20261017000000")]
+    [InlineData("2026-10-17T00:00:00Z", "20261017", "20261017053000")]
+    [InlineData("2026-03-31T18:30:00Z", "20260401", "20260401000000")]
+    public void NewDocumentIdentifiersUseKolkataAndInvariantGregorianDigits(
+        string instant, string date, string timestamp)
+    {
+        var parsed = DateTimeOffset.Parse(instant, System.Globalization.CultureInfo.InvariantCulture);
+        var previous = System.Globalization.CultureInfo.CurrentCulture;
+        try
+        {
+            foreach (var culture in new[] { "en-IN", "th-TH", "ar-SA" })
+            {
+                System.Globalization.CultureInfo.CurrentCulture = new System.Globalization.CultureInfo(culture);
+                Assert.Equal(date, BusinessCalendar.IdentifierDate(BusinessCalendar.DateAt(parsed)));
+                Assert.Equal(timestamp, BusinessCalendar.IdentifierTimestamp(parsed));
+            }
+        }
+        finally { System.Globalization.CultureInfo.CurrentCulture = previous; }
+    }
+
     [Fact]
     public void OperationCapturesOnceButNextOperationUsesNewDate()
     {
