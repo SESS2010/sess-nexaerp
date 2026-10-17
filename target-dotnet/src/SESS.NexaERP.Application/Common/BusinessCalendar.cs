@@ -5,6 +5,9 @@ public static class BusinessCalendar
 {
     public static DateOnly DateAt(DateTimeOffset instant) =>
         SESS.NexaERP.Domain.Common.BusinessDatePolicy.KolkataDate(instant);
+
+    public static DateTimeOffset StartOfDate(DateOnly date) =>
+        SESS.NexaERP.Domain.Common.BusinessDatePolicy.KolkataStartOfDay(date);
 }
 
 /// <summary>One trusted business date per DI operation scope, including midnight-crossing requests.</summary>

@@ -202,7 +202,7 @@ public static partial class Rev869BPurchaseEndpoints
     private static string Normalize(string value) => value.Trim().ToUpperInvariant();
     private static bool InvalidDates(DateOnly? from, DateOnly? to) => from.HasValue && to.HasValue && from > to;
     private static IResult DateError() => Results.BadRequest(new { message = "from must be on or before to." });
-    private static DateTimeOffset Start(DateOnly value) => new(value.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc));
+    private static DateTimeOffset Start(DateOnly value) => BusinessCalendar.StartOfDate(value);
 
     private static IQueryable<T> DateRange<T>(IQueryable<T> query, DateOnly? from, DateOnly? to) where T : SESS.NexaERP.Domain.Common.AuditableEntity
     {

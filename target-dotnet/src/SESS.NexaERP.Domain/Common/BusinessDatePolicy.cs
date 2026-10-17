@@ -8,6 +8,9 @@ public static class BusinessDatePolicy
     public const string KolkataV1 = "ASIA_KOLKATA_V1";
     private static readonly TimeZoneInfo Kolkata = TimeZoneInfo.FindSystemTimeZoneById("Asia/Kolkata");
     public static DateOnly KolkataDate(DateTimeOffset instant) => DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(instant, Kolkata).DateTime);
+    /// <summary>Inclusive UTC instant at the start of a Kolkata business date, for current-date filters.</summary>
+    public static DateTimeOffset KolkataStartOfDay(DateOnly date) =>
+        new(TimeZoneInfo.ConvertTimeToUtc(date.ToDateTime(TimeOnly.MinValue, DateTimeKind.Unspecified), Kolkata));
     public static DateOnly EventDate(DateTimeOffset instant, string? basis) => basis switch
     {
         null => DateOnly.FromDateTime(instant.UtcDateTime),
