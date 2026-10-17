@@ -8,9 +8,6 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations;
 public sealed class NamedAccountsBackupIdentity : Migration
 {
     private const string RegisterSignature = "advance.register_command_request(text,text,bytea,bytea,uuid,text,text,text,uuid)";
-    private const string PurchaseRegisterSignature = "advance.rev869b_register_command_request(text,text,bytea,bytea,uuid,text,text,text,uuid)";
-    private const string PurchaseRegisterBody = "SELECT * INTO existing FROM advance.rev869b_command_requests r";
-    private const string GuardedPurchaseRegisterBody = "IF advance.accounts_identity_role_allowed(organization,actor_employee,identity_issuer,identity_subject,actor_role,operation,actor_assignment) IS NOT TRUE THEN RAISE EXCEPTION USING ERRCODE='42501',MESSAGE='Identity authority profile does not permit this command role or operation.'; END IF; " + PurchaseRegisterBody;
     private const string RegisterBody = "SELECT * INTO existing FROM advance.command_requests r";
     private const string GuardedRegisterBody = "IF advance.accounts_identity_role_allowed(organization,actor_employee,identity_issuer,identity_subject,actor_role,operation,actor_assignment) IS NOT TRUE THEN RAISE EXCEPTION USING ERRCODE='42501',MESSAGE='Identity authority profile does not permit this command role or operation.'; END IF; " + RegisterBody;
 
@@ -107,7 +104,6 @@ public sealed class NamedAccountsBackupIdentity : Migration
             -- No identities, role assignments, scopes or production grants are created by this migration.
             """));
         builder.Sql(InstalledFunctionSql.Rewrite(RegisterSignature,true,(RegisterBody,GuardedRegisterBody,1)));
-        builder.Sql(InstalledFunctionSql.Rewrite(PurchaseRegisterSignature,true,(PurchaseRegisterBody,GuardedPurchaseRegisterBody,1)));
     }
     protected override void Down(MigrationBuilder builder)
     {
@@ -118,15 +114,12 @@ public sealed class NamedAccountsBackupIdentity : Migration
               IF EXISTS(SELECT 1 FROM advance.employee_identity_mappings WHERE "IdentityType"='HUMAN_ACCT_BACKUP') OR
                  EXISTS(SELECT 1 FROM advance.employee_role_assignments a JOIN advance.roles r ON r."Id"=a."RoleId"
                    JOIN advance.employees e ON e."Id"=a."EmployeeId" WHERE e."EmployeeCode"='SESS-41' AND r."Code"='ACCOUNTS_MANAGER') OR
-                 EXISTS(SELECT 1 FROM advance.rev869b_command_requests q JOIN advance.employees e ON e."Id"=q."ActorEmployeeId"
-                   WHERE e."EmployeeCode"='SESS-41' AND q."ActorRole"='ACCOUNTS_MANAGER') OR
                  EXISTS(SELECT 1 FROM advance.command_requests q JOIN advance.employees e ON e."Id"=q."ActorEmployeeId"
                    WHERE e."EmployeeCode"='SESS-41' AND q."ActorRoleCode"='ACCOUNTS_MANAGER') THEN
                 RAISE EXCEPTION 'Accounts identity rollback refuses retained identities, accounts assignments or commands; retain forward code and evidence.';
               END IF;
             END $guard$;
             """));
-        builder.Sql(InstalledFunctionSql.Rewrite(PurchaseRegisterSignature,true,(GuardedPurchaseRegisterBody,PurchaseRegisterBody,1)));
         builder.Sql(InstalledFunctionSql.Rewrite(RegisterSignature,true,(GuardedRegisterBody,RegisterBody,1)));
         builder.Sql(MigrationText.Lf("""
             DROP FUNCTION advance.accounts_identity_role_allowed(text,uuid,text,text,text,text,uuid);

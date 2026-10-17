@@ -19,6 +19,15 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         var migrator=model.GetService<IMigrator>();
         using var server=DisposablePostgreSql.Start(FindPostgreSqlBin());
         server.Execute("accounts-identity-before.sql",migrator.GenerateScript("0",before));
+        // Purchase and other controlled writes now share the ordinary ledger. The retired
+        // table must stay absent; neither rollback nor new authority may depend on it.
+        server.Execute("accounts-current-ledger-precondition.sql","""
+            DO $assert$ BEGIN
+              IF to_regclass('advance.command_requests') IS NULL OR to_regclass('advance.rev869b_command_requests') IS NOT NULL THEN
+                RAISE EXCEPTION 'Expected the current ordinary ledger and no retired purchase table.';
+              END IF;
+            END $assert$;
+            """);
         server.Execute("accounts-identity-baseline.sql","""
             CREATE TABLE public.accounts_register_before AS SELECT to_jsonb(p) data FROM pg_proc p
               WHERE p.oid='advance.register_command_request(text,text,bytea,bytea,uuid,text,text,text,uuid)'::regprocedure;
