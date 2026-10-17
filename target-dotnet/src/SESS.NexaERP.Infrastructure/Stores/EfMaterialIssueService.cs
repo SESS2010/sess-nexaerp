@@ -51,6 +51,7 @@ public sealed partial class EfMaterialIssueService(
     // Decision-only authority must never be selected for request/return creation, even through a direct service call.
     private string RequireAny(string operation)
     {
+        user.RequireAccountsBackupPageAction("stores.material-issue-requests",operation);
         var roles = user.EffectiveRoleAssignments.Select(x => x.RoleCode)
             .Where(code => !string.Equals(code,MirRequesterPolicy.ApproverRole,StringComparison.OrdinalIgnoreCase))
             .Distinct(StringComparer.OrdinalIgnoreCase).ToArray();

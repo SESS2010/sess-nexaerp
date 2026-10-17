@@ -5,6 +5,7 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using SESS.NexaERP.Application.Purchase;
 using SESS.NexaERP.Domain.Authorization;
+using SESS.NexaERP.Infrastructure.Authorization;
 using SESS.NexaERP.Domain.Purchase;
 
 namespace SESS.NexaERP.Infrastructure.Purchase;
@@ -128,6 +129,7 @@ public sealed partial class EfRev869BPurchaseService
         var priorEmployee = c.CompletedApprovalStepCount == 1
             ? await db.PurchaseTransactionApprovalHistories.AsNoTracking().Where(x => x.CommercialComparisonId == c.Id && x.ApprovalCycle == c.ApprovalCycle && x.StepNumber == 1 && x.Action == "Approve").Select(x => (Guid?)x.ResolvedEmployeeId).SingleOrDefaultAsync(ct)
             : null;
+        await AccountsDocumentConflictGuard.RequireComparisonDutyAsync(db,user,c,AccountsDocumentDuty.L1Decision,ct);
         var decision = approvalWorkflow.AuthorizeNextStep(c.ApprovalWorkflowSnapshotJson, c.ApprovalCycle,
             c.CompletedApprovalStepCount, c.CreatorEmployeeId, actor, user.RoleCodes, priorEmployee);
         SetApprovalActorRole(decision.ResolvedRoleCode);
@@ -360,6 +362,7 @@ public sealed partial class EfRev869BPurchaseService
         var priorStepEmployee = po.CompletedApprovalStepCount == 1
             ? await db.PurchaseOrderHistories.AsNoTracking().Where(x => x.PurchaseOrderId == po.Id && x.ApprovalCycle == po.ApprovalCycle && x.StepNumber == 1 && x.Action == "Approve").Select(x => x.ResolvedEmployeeId).SingleOrDefaultAsync(ct)
             : null;
+        await AccountsDocumentConflictGuard.RequirePurchaseOrderDutyAsync(db,user,po,AccountsDocumentDuty.L1Decision,ct);
         var decision = approvalWorkflow.AuthorizeNextStep(po.ApprovalWorkflowSnapshotJson, po.ApprovalCycle,
             po.CompletedApprovalStepCount, po.CreatorEmployeeId, actor, user.RoleCodes, priorStepEmployee);
         SetApprovalActorRole(decision.ResolvedRoleCode);

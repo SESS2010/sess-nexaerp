@@ -60,7 +60,9 @@ public static partial class Rev869AConfigurationEndpoints
 
     private static async Task<IResult> CreateIdentityCore(CreateEmployeeIdentityMappingRequest request, NexaErpDbContext db, ICurrentUser user, IAuditWriter audit, CancellationToken ct)
     {
-        if (!string.Equals(request.IdentityType, IdentityTypes.Human, StringComparison.OrdinalIgnoreCase)) return Results.BadRequest(new { message = "REV869A creates employee-linked HUMAN identities only; shared human logins are prohibited." });
+        var requestedType = request.IdentityType?.Trim().ToUpperInvariant() ?? string.Empty;
+        if (requestedType != IdentityTypes.Human && requestedType != AccountsBackupIdentityPolicy.MappingType)
+            return Results.BadRequest(new { message = "Only individual HUMAN identities or the named accounts-backup HUMAN profile are supported." });
         if (string.IsNullOrWhiteSpace(request.Issuer) || string.IsNullOrWhiteSpace(request.Subject) || request.EffectiveTo < request.EffectiveFrom) return Results.BadRequest(new { message = "Issuer, subject and a valid effective range are required." });
         var employeeCode = MasterEndpointHelpers.NormalizeCode(request.EmployeeCode);
         var employee = await db.Employees.SingleOrDefaultAsync(x => x.EmployeeCode == employeeCode, ct);
@@ -74,12 +76,25 @@ public static partial class Rev869AConfigurationEndpoints
         if (!hasCompanyAssignment) return Results.Conflict(new { message = "Identity requires an active employee assignment in the selected company." });
         var issuer = EmployeeIdentityMapping.NormalizeIssuer(request.Issuer);
         var subject = EmployeeIdentityMapping.NormalizeSubject(request.Subject);
-        if (await db.EmployeeIdentityMappings.AnyAsync(x => x.CompanyId == company.Id && x.IsActive && ((x.Issuer == issuer && x.Subject == subject) || (x.OrganizationId == organization && x.EmployeeId == employee.Id && x.IdentityType == IdentityTypes.Human)), ct)) return Results.Conflict(new { message = "Active issuer/subject or employee identity mapping already exists in this company." });
+        if (AccountsBackupIdentityPolicy.IsBackup(requestedType))
+        {
+            _ = user.RequireRole("role-administration", "IT_MANAGER", "TECHNICAL_DIRECTOR", "MANAGING_DIRECTOR");
+            var date = request.EffectiveFrom;
+            var trusted = await db.EmployeeIdentityMappings.AnyAsync(m => m.CompanyId == company.Id && m.Issuer == issuer &&
+                m.IdentityType == IdentityTypes.Human && m.IsActive && m.EffectiveFrom <= date && (!m.EffectiveTo.HasValue || m.EffectiveTo >= date) &&
+                db.EmployeeRoleAssignments.Any(a => a.EmployeeId == m.EmployeeId && a.CompanyId == company.Id && a.Role != null &&
+                    (a.Role.Code == "TECHNICAL_DIRECTOR" || a.Role.Code == "MANAGING_DIRECTOR") && a.Role.IsActive &&
+                    (a.ApprovalStatus == "Approved" || a.ApprovalStatus == "SeedApproved") && a.EffectiveFrom <= date && (!a.EffectiveTo.HasValue || a.EffectiveTo >= date)), ct);
+            if (!AccountsBackupIdentityPolicy.IsValidMapping(employee.EmployeeCode,requestedType,trusted))
+                return Results.Conflict(new { message = "Accounts backup is limited to SESS-41 using the established individual approvers issuer." });
+            if (employee.Id == user.EmployeeId) return Results.Forbid();
+        }
+        if (await db.EmployeeIdentityMappings.AnyAsync(x => x.CompanyId == company.Id && x.IsActive && ((x.Issuer == issuer && x.Subject == subject) || (x.OrganizationId == organization && x.EmployeeId == employee.Id && x.IdentityType == requestedType)), ct)) return Results.Conflict(new { message = "Active issuer/subject or employee identity mapping already exists in this company." });
         if (await db.EmployeeIdentityMappings.AnyAsync(x => x.Issuer == issuer && x.Subject == subject && x.EmployeeId != employee.Id, ct))
             return Results.Conflict(new { message = "This issuer and subject already identify a different employee." });
-        var entity = new EmployeeIdentityMapping { CompanyId = company.Id, OrganizationId = organization, Issuer = issuer, Subject = subject, EmployeeId = employee.Id, IdentityType = IdentityTypes.Human, EffectiveFrom = request.EffectiveFrom, EffectiveTo = request.EffectiveTo, CreatedBy = user.LoginId };
+        var entity = new EmployeeIdentityMapping { CompanyId = company.Id, OrganizationId = organization, Issuer = issuer, Subject = subject, EmployeeId = employee.Id, IdentityType = requestedType, EffectiveFrom = request.EffectiveFrom, EffectiveTo = request.EffectiveTo, CreatedBy = user.LoginId };
         db.EmployeeIdentityMappings.Add(entity);
-        AddHistory(db, entity.OrganizationId, nameof(EmployeeIdentityMapping), entity.Id, "Create", null, new { entity.Issuer, subjectHash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(entity.Subject))), employee.EmployeeCode, entity.EffectiveFrom, entity.EffectiveTo }, request.Remarks, user, company.Id);
+        AddHistory(db, entity.OrganizationId, nameof(EmployeeIdentityMapping), entity.Id, "Create", null, new { entity.IdentityType, entity.Issuer, subjectHash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(entity.Subject))), employee.EmployeeCode, entity.EffectiveFrom, entity.EffectiveTo }, request.Remarks, user, company.Id);
         await db.SaveChangesAsync(ct);
         await audit.WriteAsync("Security", "CreateIdentityMapping", nameof(EmployeeIdentityMapping), entity.Id.ToString(), null, new { entity.OrganizationId, entity.Issuer, employee.EmployeeCode }, ct);
         return Results.Created($"/api/v1/rev869a/configuration/employee-identities/{entity.Id}", new { entity.Id });

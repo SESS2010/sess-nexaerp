@@ -1,3 +1,4 @@
+using SESS.NexaERP.Domain.Identity;
 using System.Data;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
@@ -42,6 +43,8 @@ public sealed partial class EfRev869BPurchaseService : IRev869BPurchaseService
     private async Task<Rev869BTransactionScope> BeginTransactionScopeAsync(
         string operation, string idempotencyKey, object request, CancellationToken ct)
     {
+        if (AccountsBackupIdentityPolicy.IsBackup(user.IdentityAuthorityType) && !AccountsBackupIdentityPolicy.AllowsPurchaseDecisionOperation(operation))
+            throw new UnauthorizedAccessException("The accounts identity may take independent commercial decisions only; purchase creation, recommendation and issue remain with their assigned operators.");
         if (db.Database.CurrentTransaction is not null)
             throw new InvalidOperationException("REV869B commands require a service-owned transaction for exact terminal security-audit correlation.");
         currentCommandEnvelope = Rev869BCommandContextAuthorizer.CommandEnvelope.Create(
