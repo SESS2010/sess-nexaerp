@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 using SESS.NexaERP.Infrastructure.Persistence;
 using SESS.NexaERP.Application.Authorization;
+using SESS.NexaERP.Application.Common;
 
 namespace SESS.NexaERP.Tests;
 
