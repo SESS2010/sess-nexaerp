@@ -60,6 +60,8 @@ public sealed class IndependentMdOpeningValueReview : Migration
                 RAISE EXCEPTION 'Independent MD value-review rollback refuses retained valuation evidence.';
               END IF;
               IF NOT EXISTS(SELECT 1 FROM advance.role_page_permissions WHERE "Id"=md5('rc26.independent-md-opening-review')::uuid
+                AND "RoleId"=(SELECT "Id" FROM advance.roles WHERE "Code"='MANAGING_DIRECTOR')
+                AND "PageDefinitionId"=(SELECT "Id" FROM advance.page_definitions WHERE "PageKey"='stores.opening-stock')
                 AND "CreatedBy"='IndependentMdOpeningValueReview' AND "Version"=0 AND "CanView" AND "CanVerify"
                 AND NOT "CanCreate" AND NOT "CanUpdate" AND NOT "CanSubmit" AND NOT "CanIssue" AND NOT "CanApprove"
                 AND NOT "CanReject" AND NOT "CanRequestClarification" AND NOT "CanRequestRevision" AND NOT "CanResubmit"

@@ -61,6 +61,21 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             END $assert$;
             """);
         server.Execute("independent-review-reapply.sql",up);
+        server.Execute("independent-review-role-drift.sql","""
+            UPDATE advance.role_page_permissions SET "RoleId"=(SELECT "Id" FROM advance.roles WHERE "Code"='MIR_REQUESTER')
+              WHERE "Id"=md5('rc26.independent-md-opening-review')::uuid;
+            """);
+        server.AssertRejected("independent-review-role-drift-down.sql",down,"refuses permission drift");
+        server.Execute("independent-review-role-drift-retained.sql","""
+            DO $assert$ BEGIN
+              IF NOT EXISTS(SELECT 1 FROM advance.role_page_permissions p JOIN advance.roles r ON r."Id"=p."RoleId"
+                WHERE p."Id"=md5('rc26.independent-md-opening-review')::uuid AND r."Code"='MIR_REQUESTER') THEN
+                RAISE EXCEPTION 'Refused rollback erased permission identity drift evidence.';
+              END IF;
+            END $assert$;
+            UPDATE advance.role_page_permissions SET "RoleId"=(SELECT "Id" FROM advance.roles WHERE "Code"='MANAGING_DIRECTOR')
+              WHERE "Id"=md5('rc26.independent-md-opening-review')::uuid;
+            """);
         server.Execute("independent-review-drift.sql","""
             UPDATE advance.role_page_permissions SET "CanApprove"=true
               WHERE "Id"=md5('rc26.independent-md-opening-review')::uuid;
