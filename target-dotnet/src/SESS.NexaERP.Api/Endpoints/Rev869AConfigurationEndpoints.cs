@@ -21,6 +21,10 @@ public static partial class Rev869AConfigurationEndpoints
         group.MapGet("/policies", async (NexaErpDbContext db, CancellationToken ct) => Results.Ok(await db.OrganizationPolicies.AsNoTracking().OrderBy(x => x.OrganizationId).ThenBy(x => x.PolicyCode).ToListAsync(ct)))
             .RequirePagePermission("security.operational-scopes", PagePermissionActions.View);
         group.MapPost("/employee-identities", CreateIdentity).RequirePagePermission("security.employee-identities", PagePermissionActions.Create);
+        group.MapGet("/employee-onboarding/primary-departments", ReadOnboardingPrimaryDepartment)
+            .RequirePagePermission("security.employee-identities", PagePermissionActions.View);
+        group.MapPost("/employee-onboarding/primary-department", EnsureOnboardingPrimaryDepartment)
+            .RequirePagePermission("security.employee-identities", PagePermissionActions.Create);
         group.MapPost("/employee-identities/{identityId:guid}/revoke", RevokeIdentity).RequirePagePermission("security.employee-identities", PagePermissionActions.Deactivate);
         group.MapGet("/employee-identities", ListEmployeeIdentities).RequirePagePermission("security.employee-identities", PagePermissionActions.View);
         group.MapPost("/operational-scopes", CreateScope).RequirePagePermission("security.operational-scopes", PagePermissionActions.Create);
