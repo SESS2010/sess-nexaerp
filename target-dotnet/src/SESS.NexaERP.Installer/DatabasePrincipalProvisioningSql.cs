@@ -609,8 +609,9 @@ internal static class DatabasePrincipalProvisioningSql
               WHERE rolname IN ('nexa_erp_owner','nexa_erp_migration','nexa_erp_bootstrap','nexa_erp_runtime'))<>4 THEN
             RAISE EXCEPTION 'Exactly four managed NexaERP roles are required.';
           END IF;
-          IF to_regprocedure('advance.business_event_date(timestamptz)') IS NOT NULL AND
-            (SELECT count(*) FROM pg_proc p WHERE p.oid IN ('advance.business_event_date(timestamptz)'::regprocedure,'advance.business_calendar_cutover()'::regprocedure)
+          IF (to_regprocedure('advance.business_event_date(timestamptz)') IS NOT NULL OR
+              to_regprocedure('advance.business_calendar_cutover()') IS NOT NULL) AND
+            (SELECT count(*) FROM pg_proc p WHERE p.oid IN (to_regprocedure('advance.business_event_date(timestamptz)'),to_regprocedure('advance.business_calendar_cutover()'))
               AND p.proowner='nexa_erp_owner'::regrole AND NOT p.prosecdef AND p.provolatile='i'
               AND p.proconfig @> ARRAY['search_path=pg_catalog, advance']
               AND has_function_privilege('nexa_erp_runtime',p.oid,'EXECUTE')
@@ -620,7 +621,7 @@ internal static class DatabasePrincipalProvisioningSql
             RAISE EXCEPTION 'Kolkata recorded event calendar ownership or execute ACL is invalid.';
           END IF;
           IF to_regprocedure('advance.current_business_date()') IS NOT NULL AND NOT EXISTS(
-            SELECT 1 FROM pg_proc p WHERE p.oid='advance.current_business_date()'::regprocedure
+            SELECT 1 FROM pg_proc p WHERE p.oid=to_regprocedure('advance.current_business_date()')
               AND p.proowner='nexa_erp_owner'::regrole AND NOT p.prosecdef AND p.provolatile='s'
               AND p.proconfig @> ARRAY['search_path=pg_catalog, advance']
               AND has_function_privilege('nexa_erp_runtime',p.oid,'EXECUTE')
