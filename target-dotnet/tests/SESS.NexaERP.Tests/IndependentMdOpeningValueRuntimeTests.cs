@@ -104,11 +104,15 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         async Task<long[]> Snapshot()
         {
             await using var db = new NexaErpDbContext(options);
+            // Fresh ordinary deployments deliberately omit the retired optional Rev869B package.
+            // Assert its absence on every before/after snapshot; never recreate it just for this test.
+            Assert.True(await db.Database.SqlQueryRaw<bool>(
+                "SELECT to_regclass('advance.rev869b_command_requests') IS NULL AS \"Value\"").SingleAsync(),
+                "The fresh ordinary fixture must not acquire a retired legacy ledger.");
             return [await db.OpeningStocks.CountAsync(), await db.OpeningStockEvents.CountAsync(),
                 await db.StockMovements.CountAsync(), await db.FifoInventoryCostLayers.CountAsync(),
                 await db.Database.SqlQueryRaw<long>("SELECT count(*) AS \"Value\" FROM advance.command_requests").SingleAsync(),
-                await db.Database.SqlQueryRaw<long>("SELECT count(*) AS \"Value\" FROM advance.command_receipts").SingleAsync(),
-                await db.Database.SqlQueryRaw<long>("SELECT count(*) AS \"Value\" FROM advance.rev869b_command_requests").SingleAsync()];
+                await db.Database.SqlQueryRaw<long>("SELECT count(*) AS \"Value\" FROM advance.command_receipts").SingleAsync()];
         }
         async Task Refused(HttpClient client, OpeningStockTransitionRequest request, HttpStatusCode expected)
         {
