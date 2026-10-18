@@ -48,9 +48,14 @@ public sealed partial class EfMaterialIssueService(
         await db.Companies.SingleOrDefaultAsync(x => x.Code == Organization() && x.IsActive && x.Status == "ACTIVE", ct)
         ?? throw new UnauthorizedAccessException("Selected company is unavailable.");
 
+    // Decision-only authority must never be selected for request/return creation, even through a direct service call.
     private string RequireAny(string operation)
     {
-        var roles = user.EffectiveRoleAssignments.Select(x => x.RoleCode).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        user.RequireAccountsBackupPageAction("stores.material-issue-requests",operation);
+        var roles = user.EffectiveRoleAssignments.Select(x => x.RoleCode)
+            .Where(code => !string.Equals(code,MirRequesterPolicy.ApproverRole,StringComparison.OrdinalIgnoreCase))
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        if (roles.Length == 0) throw new UnauthorizedAccessException("A requester or business role is required; MIR decision authority cannot create requests or returns.");
         return user.RequireRole(operation, roles);
     }
 
@@ -62,7 +67,7 @@ public sealed partial class EfMaterialIssueService(
 
     private async Task<string> NextNumberAsync(Guid companyId, string prefix, CancellationToken ct)
     {
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var today = db.BusinessDate;
         var year = today.Month >= 4 ? $"{today.Year % 100:00}-{(today.Year + 1) % 100:00}"
             : $"{(today.Year - 1) % 100:00}-{today.Year % 100:00}";
         var organization = Organization();

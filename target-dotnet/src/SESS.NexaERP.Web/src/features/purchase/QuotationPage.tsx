@@ -488,7 +488,7 @@ export function QuotationPage() {
   }
 
   const runVerification = async () => {
-    if (verifying) return
+    if (!canVerifyTechnically || verifying) return
     setError(null)
     setNotice('')
     if (!verifyQuotation || !verifyForm.lineId) {
@@ -820,6 +820,7 @@ export function QuotationPage() {
         </div>
       </form>
 
+      {canVerifyTechnically && (
       <div className="card">
         <div className="form-section-title">4 · Technical verification</div>
         <div className="form-grid">
@@ -924,6 +925,7 @@ export function QuotationPage() {
           </div>
         </div>
       </div>
+      )}
     </div>
   )
 }

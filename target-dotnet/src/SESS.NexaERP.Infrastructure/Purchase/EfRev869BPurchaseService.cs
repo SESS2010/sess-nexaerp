@@ -1,3 +1,4 @@
+using SESS.NexaERP.Domain.Identity;
 using System.Data;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
@@ -42,6 +43,8 @@ public sealed partial class EfRev869BPurchaseService : IRev869BPurchaseService
     private async Task<Rev869BTransactionScope> BeginTransactionScopeAsync(
         string operation, string idempotencyKey, object request, CancellationToken ct)
     {
+        if (AccountsBackupIdentityPolicy.IsBackup(user.IdentityAuthorityType) && !AccountsBackupIdentityPolicy.AllowsPurchaseDecisionOperation(operation))
+            throw new UnauthorizedAccessException("The accounts identity may take independent commercial decisions only; purchase creation, recommendation and issue remain with their assigned operators.");
         if (db.Database.CurrentTransaction is not null)
             throw new InvalidOperationException("REV869B commands require a service-owned transaction for exact terminal security-audit correlation.");
         currentCommandEnvelope = Rev869BCommandContextAuthorizer.CommandEnvelope.Create(
@@ -216,7 +219,7 @@ public sealed partial class EfRev869BPurchaseService : IRev869BPurchaseService
     private async Task RequireScopeAsync(Guid actor, string organization, Guid? department, Guid? warehouse, Guid? rackBin, Guid? owner, CancellationToken ct)
     {
         var actingRole = CurrentActorRole();
-        var decision = await scopes.AuthorizeAsync(actor, actingRole, new RecordScopeTarget(organization, department, warehouse, rackBin, owner), DateOnly.FromDateTime(DateTime.UtcNow), ct);
+        var decision = await scopes.AuthorizeAsync(actor, actingRole, new RecordScopeTarget(organization, department, warehouse, rackBin, owner), db.BusinessDate, ct);
         if (!decision.Allowed) { await WriteAuditAsync("Security", "Denied", "REV869BRecordScope", organization, null, new { decision.Reason, department, warehouse }, ct); throw new UnauthorizedAccessException(decision.Reason); }
     }
 
@@ -322,9 +325,9 @@ public sealed partial class EfRev869BPurchaseService : IRev869BPurchaseService
         tax.PlaceOfSupplyStateCode, tax.VendorRegistrationType, tax.GstRate, tax.CgstRate, tax.SgstRate,
         tax.IgstRate, tax.CessRate, tax.IsExempt, tax.IsReverseCharge, tax.CurrencyCode, tax.RoundingScale,
         tax.EffectiveFrom, tax.EffectiveTo, tax.ApprovalStatus, tax.IsActive)
-        { ItcEligibility = tax.ItcEligibility, RecoverableTaxPercent = tax.RecoverableTaxPercent };
+        { ItcEligibility = tax.ItcEligibility, RecoverableTaxPercent = tax.RecoverableTaxPercent, QuotationDateBasis = SESS.NexaERP.Domain.Common.BusinessDatePolicy.KolkataV1 };
 
-    private static (Rev869BCommercialBreakdown Breakdown, Rev869BTaxRuleSnapshot Tax) Recalculate(VendorQuotationLine line, string organization, DateOnly quotationReceivedDate)
+    private static (Rev869BCommercialBreakdown Breakdown, Rev869BTaxRuleSnapshot Tax) Recalculate(VendorQuotationLine line, string organization, DateTimeOffset quotationReceivedAt)
     {
         Rev869BTaxRuleSnapshot tax;
         try { tax = JsonSerializer.Deserialize<Rev869BTaxRuleSnapshot>(line.TaxRuleSnapshotJson, JsonOptions) ?? throw new JsonException(); }
@@ -338,7 +341,7 @@ public sealed partial class EfRev869BPurchaseService : IRev869BPurchaseService
         var stored = new Rev869BCommercialBreakdown(line.TaxableValue, line.DiscountValue, line.CgstValue, line.SgstValue, line.IgstValue, line.CessValue, line.PackingForwarding, line.Freight, line.Insurance, line.OtherCharges, line.RoundOff, line.TotalPayableValue)
         { GrossAmount = decimal.Round(line.Quantity * line.UnitRate, tax.RoundingScale, MidpointRounding.AwayFromZero), AssessableValue = Rev869BCommercialCalculator.Add(decimal.Round(line.Quantity * line.UnitRate, tax.RoundingScale, MidpointRounding.AwayFromZero), line.PackingForwarding, line.Freight, line.Insurance, line.OtherCharges), HeaderDiscountValue = line.HeaderDiscountValue, CurrencyCode = tax.CurrencyCode, ExchangeRate = 1m };
         Rev869BCommercialBreakdown calculation;
-        try { calculation = Rev869BCommercialCalculator.Reconcile(input, stored, tax, quotationReceivedDate); }
+        try { calculation = Rev869BCommercialCalculator.Reconcile(input, stored, tax, SESS.NexaERP.Domain.Common.BusinessDatePolicy.EventDate(quotationReceivedAt, tax.QuotationDateBasis)); }
         catch (InvalidOperationException ex) { throw new Rev869BConflictException(ex.Message); }
         return (calculation, tax);
     }
@@ -379,7 +382,7 @@ public sealed partial class EfRev869BPurchaseService : IRev869BPurchaseService
             ComparisonCommercialSnapshot snapshot;
             try { snapshot = JsonSerializer.Deserialize<ComparisonCommercialSnapshot>(comparisonLine.CommercialSnapshotJson, JsonOptions) ?? throw new JsonException(); }
             catch (JsonException) { throw new Rev869BConflictException("Comparison commercial snapshot is malformed."); }
-            var calculated = Recalculate(line, comparison.OrganizationId, DateOnly.FromDateTime(quote.ReceivedAt.UtcDateTime));
+            var calculated = Recalculate(line, comparison.OrganizationId, quote.ReceivedAt);
             var expectedJson = ComparisonSnapshotJson(comparison, quote, line, calculated);
             var expected = JsonSerializer.Deserialize<ComparisonCommercialSnapshot>(expectedJson, JsonOptions)!;
             if (snapshot != expected || comparisonLine.TotalPayableValue != calculated.Breakdown.TotalPayableValue)

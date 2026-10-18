@@ -153,6 +153,7 @@ public sealed class AuthorizationIntegrationTests
             });
             builder.WebHost.UseUrls($"http://127.0.0.1:{port}");
             builder.Services.AddRouting();
+            builder.Services.AddSingleton<SESS.NexaERP.Application.Common.IDateTimeProvider, SESS.NexaERP.Infrastructure.SystemClock>();
             builder.Services.ConfigureHttpJsonOptions(options => ApiJsonContract.Configure(options.SerializerOptions));
             builder.Services.AddAuthentication(TestOnlyAuthenticationHandler.SchemeName)
                 .AddScheme<AuthenticationSchemeOptions, TestOnlyAuthenticationHandler>(TestOnlyAuthenticationHandler.SchemeName, _ => { });

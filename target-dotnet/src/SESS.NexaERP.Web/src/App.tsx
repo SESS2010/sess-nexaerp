@@ -7,6 +7,8 @@ import { SessLogo } from './components/SessLogo'
 import { UserMenu } from './components/UserMenu'
 import { LoginPage } from './features/auth/LoginPage'
 import { HomePage } from './features/home/HomePage'
+import { EmployeeMirPortalPage } from './features/employee/EmployeeMirPortalPage'
+import { requesterOnly } from './features/employee/portalAccess'
 import { RequireAuth } from './features/auth/RequireAuth'
 import { RequirePage, gated } from './features/auth/RequirePage'
 import { CompanySelectPage } from './features/auth/CompanySelectPage'
@@ -40,6 +42,7 @@ import { QcQueuePage } from './features/qc/QcQueuePage'
 import { QcInspectPage } from './features/qc/QcInspectPage'
 import { QcInspectionPage } from './features/qc/QcInspectionPage'
 import { ConcessionPage } from './features/qc/ConcessionPage'
+import { ConcessionListPage } from './features/qc/ConcessionListPage'
 import { ConcessionCreatePage } from './features/qc/ConcessionCreatePage'
 import { QcPolicyPage } from './features/qc/QcPolicyPage'
 import { StockCheckPage } from './features/stores/StockCheckPage'
@@ -82,6 +85,7 @@ import { EMAIL_LOG_PAGE_KEY } from './api/email'
 import { PURCHASE_DASHBOARD_KEYS, canOpenAnyStoresSection } from './features/dashboards/dashboardAccess'
 
 const TITLES: [prefix: string, title: string][] = [
+  ['/employee/my-mirs', 'My material requests'],
   ['/dashboards/purchase', 'Purchase Dashboard'],
   ['/dashboards/stores', 'Stores Dashboard'],
   ['/tracking/pending', 'Pending Documents'],
@@ -138,7 +142,8 @@ function Shell({ children }: { children: React.ReactNode }) {
   // Session permissions ("page:Action") hide screens the role cannot View.
   // Until they are known the navigation stays empty rather than flashing
   // links that vanish a moment later.
-  const { can, loading } = useSession()
+  const { can, loading, me } = useSession()
+  const portalOnly = requesterOnly(me?.RoleCodes ?? [])
   // The menu can be hidden to give a screen the full width; the choice is
   // remembered per browser.
   const [menuHidden, setMenuHidden] = useState(() => {
@@ -150,6 +155,8 @@ function Shell({ children }: { children: React.ReactNode }) {
       return !hidden
     })
   }
+
+  if (portalOnly && location.pathname !== '/employee/my-mirs') return <Navigate to="/employee/my-mirs" replace />
 
   return (
     <div className="app-shell">
@@ -163,6 +170,8 @@ function Shell({ children }: { children: React.ReactNode }) {
         </div>
         <nav className="nav">
           {loading ? <span className="nav-link disabled">Loading session…</span> : null}
+          {can(PAGE_KEYS.ownMirs) && <NavLink to="/employee/my-mirs" className={navLinkClass}>My material requests</NavLink>}
+          {!portalOnly && <>
           {(PURCHASE_DASHBOARD_KEYS.some((key) => can(key)) || canOpenAnyStoresSection(can) || can('tracking.pending')) && (
             <NavSection id="dashboards" label="Dashboards" defaultOpen>
               {can('tracking.pending') && <NavLink to="/tracking/pending" className={navLinkClass}>Pending</NavLink>}
@@ -241,6 +250,7 @@ function Shell({ children }: { children: React.ReactNode }) {
               <NavLink to="/admin/email" className={navLinkClass}>E-mail log</NavLink>
             </NavSection>
           )}
+          </>}
         </nav>
       </aside>
       <div className="main">
@@ -288,6 +298,7 @@ export default function App() {
             <Shell>
               <Routes>
                 <Route path="/" element={<HomePage />} />
+                <Route path="/employee/my-mirs" element={gated(PAGE_KEYS.ownMirs, <EmployeeMirPortalPage />)} />
                 <Route path="*" element={<Navigate to="/" replace />} />
                 <Route path="/dashboards/purchase" element={<RequirePage allow={(can) => PURCHASE_DASHBOARD_KEYS.some((key) => can(key))} need="a dashboards.purchase* grant"><PurchaseDashboardPage /></RequirePage>} />
                 <Route path="/dashboards/stores" element={<RequirePage allow={canOpenAnyStoresSection} need="dashboards.stores-workload or dashboards.stores-qc-stock + inventory.grn"><StoresDashboardPage /></RequirePage>} />
@@ -345,7 +356,7 @@ export default function App() {
                 <Route path="/qc/inspections" element={gated(PAGE_KEYS.qc, <QcQueuePage />)} />
                 <Route path="/qc/inspect/:allocationId" element={gated(PAGE_KEYS.qc, <QcInspectPage />)} />
                 <Route path="/qc/inspections/:number" element={gated(PAGE_KEYS.qc, <QcInspectionPage />)} />
-                <Route path="/qc/concessions" element={gated(PAGE_KEYS.qc, <ConcessionPage />)} />
+                <Route path="/qc/concessions" element={gated(PAGE_KEYS.qc, <ConcessionListPage />)} />
                 <Route path="/qc/concessions/new" element={gated(PAGE_KEYS.qc, <ConcessionCreatePage />)} />
                 <Route path="/qc/concessions/:number" element={gated(PAGE_KEYS.qc, <ConcessionPage />)} />
                 <Route path="/qc/inspection-policies" element={gated(PAGE_KEYS.qc, <QcPolicyPage />)} />

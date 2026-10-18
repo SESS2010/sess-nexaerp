@@ -1,3 +1,4 @@
+import { businessDate } from '../../utils/businessDate'
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import {
@@ -15,7 +16,7 @@ import { formatAmount } from '../purchase/PurchaseRequisitionListPage'
 
 type Tab = 'payables' | 'advances' | 'payments' | 'positions'
 
-const today = () => new Date().toISOString().slice(0, 10)
+const today = () => businessDate()
 const round2 = (value: number) => Math.round(value * 100) / 100
 
 /**

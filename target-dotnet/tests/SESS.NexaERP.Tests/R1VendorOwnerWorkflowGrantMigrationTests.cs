@@ -50,7 +50,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
         {
             var employee = await db.Employees.Where(x => x.EmployeeCode == "SESS-15").Select(x => x.Id).SingleAsync();
             var companyId = await db.Companies.Where(x => x.Code == company).Select(x => x.Id).SingleAsync();
-            var today = DateOnly.FromDateTime(DateTime.UtcNow);
+            var today = SESS.NexaERP.Application.Common.BusinessCalendar.DateAt(DateTimeOffset.UtcNow);
             // PROP has no seeded final-approver policy: configure the same independent MD prerequisite in this disposable fixture only.
             if (!await db.OrganizationPolicies.AnyAsync(x => x.OrganizationId == company && x.PolicyCode == Rev869APolicyCodes.VendorFinalApprover))
             {

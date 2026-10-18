@@ -12,6 +12,8 @@ public sealed class ClaimsCurrentUser(IHttpContextAccessor httpContextAccessor) 
     private ResolvedEmployeeIdentity? Resolution => Context?.Items[EmployeeIdentityResolutionMiddleware.ResolutionItemKey] as ResolvedEmployeeIdentity;
     private ResolvedRoleAuthority? Authority => Context?.Items[ResolvedAuthorityItemKey] as ResolvedRoleAuthority;
 
+    public string? EmployeeCode => Resolution?.Success == true ? Resolution.EmployeeCode : null;
+    public string IdentityAuthorityType => Resolution?.IdentityAuthorityType ?? "HUMAN";
     public string LoginId => Resolution?.Success == true && !string.IsNullOrWhiteSpace(IdentitySubject) ? IdentitySubject! : "unauthenticated";
     public IReadOnlyList<string> RoleCodes => Resolution?.Success == true ? Resolution.RoleCodes : [];
     public IReadOnlyList<string> FullAuthorityRoleCodes => Resolution?.Success == true ? Resolution.FullAuthorityRoleCodes ?? [] : [];

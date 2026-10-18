@@ -1,4 +1,4 @@
-﻿using System.Data;
+using System.Data;
 using Microsoft.EntityFrameworkCore;
 using SESS.NexaERP.Application.Audit;
 using SESS.NexaERP.Application.Common;
@@ -63,7 +63,7 @@ public static partial class EmployeeEndpoints
         NexaErpDbContext db, ICurrentUser user, IAuditWriter audit, CancellationToken ct)
     {
         var type = NormalizeRoleCode(newAssignmentType);
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var today = db.BusinessDate;
         if (type is not (EmployeeRoleAssignmentTypes.Full or EmployeeRoleAssignmentTypes.Support) ||
             string.IsNullOrWhiteSpace(remarks) || effectiveOn < today)
             return Results.BadRequest(new { message = "Promotion/transfer requires FULL or SUPPORT, a present/future effective date and remarks." });
@@ -88,7 +88,7 @@ public static partial class EmployeeEndpoints
 
         await SetDatabaseActorAsync(db, user, ct);
         var before = RoleSummary(previous, previous.Role);
-        if (!keepPrevious) EndAssignment(previous, effectiveOn.AddDays(-1), remarks, user);
+        if (!keepPrevious) EndAssignment(previous, effectiveOn.AddDays(-1), remarks, user, today);
         var replacement = NewAssignment(scope, role.Id, effectiveOn, null, type, remarks, user);
         db.EmployeeRoleAssignments.Add(replacement);
         AddEvent(db, scope, replacement.Id, operation, previous.Role.Code, role.Code,
@@ -106,7 +106,7 @@ public static partial class EmployeeEndpoints
         string employeeCode, Guid assignmentId, EndEmployeeRoleAssignmentRequest request,
         NexaErpDbContext db, ICurrentUser user, IAuditWriter audit, CancellationToken ct)
     {
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var today = db.BusinessDate;
         if (string.IsNullOrWhiteSpace(request.Reason) || request.EffectiveTo < today)
             return Results.BadRequest(new { message = "An end reason and a present/future EffectiveTo are required; past history cannot be rewritten." });
 
@@ -126,7 +126,7 @@ public static partial class EmployeeEndpoints
         await SetDatabaseActorAsync(db, user, ct);
         var before = RoleSummary(assignment, assignment.Role);
         var priorTo = assignment.EffectiveTo;
-        EndAssignment(assignment, request.EffectiveTo, request.Reason, user);
+        EndAssignment(assignment, request.EffectiveTo, request.Reason, user, today);
         AddEvent(db, scope, assignment.Id, "END_ASSIGNMENT", assignment.Role.Code, assignment.Role.Code,
             assignment.AssignmentType, assignment.AssignmentType, assignment.EffectiveFrom, priorTo,
             assignment.EffectiveFrom, request.EffectiveTo, request.Reason, user, actorRole);
@@ -140,7 +140,7 @@ public static partial class EmployeeEndpoints
     private static async Task<IResult> GetRolePortfolioAsync(
         string employeeCode, NexaErpDbContext db, ICurrentUser user, CancellationToken ct)
     {
-        var scope = await ResolveRoleScopeAsync(employeeCode, DateOnly.FromDateTime(DateTime.UtcNow), db, user, ct);
+        var scope = await ResolveRoleScopeAsync(employeeCode, db.BusinessDate, db, user, ct);
         return scope is null ? Results.NotFound(new { message = "Employee is not active in the selected company." })
             : Results.Ok(await BuildPortfolioAsync(scope, db, ct));
     }
@@ -148,7 +148,7 @@ public static partial class EmployeeEndpoints
     private static async Task<IResult> GetRoleEventsAsync(
         string employeeCode, NexaErpDbContext db, ICurrentUser user, CancellationToken ct)
     {
-        var scope = await ResolveRoleScopeAsync(employeeCode, DateOnly.FromDateTime(DateTime.UtcNow), db, user, ct);
+        var scope = await ResolveRoleScopeAsync(employeeCode, db.BusinessDate, db, user, ct);
         if (scope is null) return Results.NotFound(new { message = "Employee is not active in the selected company." });
         var events = await db.EmployeeRoleAssignmentEvents.AsNoTracking()
             .Where(x => x.CompanyId == scope.CompanyId && x.EmployeeId == scope.EmployeeId)
@@ -245,10 +245,10 @@ public static partial class EmployeeEndpoints
         ApprovalStatus = "Approved", Remarks = remarks.Trim(), CreatedBy = user.LoginId
     };
 
-    private static void EndAssignment(EmployeeRoleAssignment assignment, DateOnly effectiveTo, string reason, ICurrentUser user)
+    private static void EndAssignment(EmployeeRoleAssignment assignment, DateOnly effectiveTo, string reason, ICurrentUser user, DateOnly today)
     {
         assignment.EffectiveTo = effectiveTo;
-        if (effectiveTo < DateOnly.FromDateTime(DateTime.UtcNow)) assignment.ApprovalStatus = "Ended";
+        if (effectiveTo < today) assignment.ApprovalStatus = "Ended";
         assignment.EndReason = reason.Trim(); assignment.EndedAt = DateTimeOffset.UtcNow; assignment.EndedBy = user.LoginId;
         assignment.Version = checked(assignment.Version + 1); assignment.UpdatedAt = DateTimeOffset.UtcNow; assignment.UpdatedBy = user.LoginId;
     }

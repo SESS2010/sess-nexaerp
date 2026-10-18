@@ -1,10 +1,13 @@
+using System.Text.Json.Serialization;
+
 namespace SESS.NexaERP.Application.Stores;
 
 public sealed record CreateOpeningStockFromImportRequest(
     Guid ImportBatchId, DateOnly PeriodStart, DateOnly PeriodEnd,
     string Reason, string IdempotencyKey);
 public sealed record OpeningStockTransitionRequest(
-    long Version, string Reason, string IdempotencyKey);
+    long Version, string Reason, string IdempotencyKey,
+    [property: JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingDefault)] bool IndependentMdReview=false);
 public sealed record OpeningStockLineView(
     Guid Id, int LineNumber, string LineReference, Guid ItemId,
     string ItemCode, string ItemName, Guid WarehouseId, string WarehouseCode,

@@ -67,7 +67,7 @@ public static partial class PurchaseRequisitionEndpoints
     {
         if (!user.EmployeeId.HasValue || string.IsNullOrWhiteSpace(user.OrganizationId))
             return db.EmployeeOperationalScopes.Where(_ => false);
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var today = db.BusinessDate;
         return db.EmployeeOperationalScopes.Where(x =>
             x.OrganizationId == user.OrganizationId &&
             x.EmployeeId == user.EmployeeId.Value &&

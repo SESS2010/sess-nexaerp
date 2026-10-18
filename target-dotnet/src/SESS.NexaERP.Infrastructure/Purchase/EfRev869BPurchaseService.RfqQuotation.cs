@@ -1,3 +1,4 @@
+using SESS.NexaERP.Application.Common;
 using System.Data;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
@@ -56,7 +57,7 @@ public sealed partial class EfRev869BPurchaseService
             var sourced = await db.RequestForQuotationLines.Where(x => x.PurchaseRequirementHandoffId == h.Id && x.RequestForQuotation!.Status != Rev869BStatuses.Cancelled).SumAsync(x => (decimal?)x.RfqQuantity, ct) ?? 0m;
             if (quantities[h.Id] <= 0 || sourced + quantities[h.Id] > h.HandoffQuantity) throw new InvalidOperationException("RFQ split exceeds approved handoff quantity.");
         }
-        var today = DateOnly.FromDateTime(DateTime.UtcNow); var next = await NextNumberAsync(organization, "RFQ", today, ct);
+        var today = db.BusinessDate; var next = await NextNumberAsync(organization, "RFQ", today, ct);
         var rfq = new RequestForQuotation { OrganizationId = organization, RfqNumber = next.Number, FinancialYear = next.Year, SequenceNumber = next.Sequence, PurchaseRequisitionId = pr.Id, RequestingDepartmentId = pr.RequestingDepartmentId, DeliveryWarehouseId = pr.DeliveryWarehouseId, OwnerEmployeeId = actor, QuoteDueAt = request.QuoteDueAt, CurrencyCode = currency, IsSingleSource = request.IsSingleSource, SingleSourceJustification = Trim(request.SingleSourceJustification), IdempotencyKey = fingerprint, TransitionCorrelationId = fingerprint, CreatedBy = user.LoginId };
         rfq.CompanyId = pr.CompanyId;
         var lineNo = 0;
@@ -93,7 +94,7 @@ public sealed partial class EfRev869BPurchaseService
             await tx.RollbackAsync(ct); return Result(duplicate.Id, rfq.RfqNumber, Rev869BStatuses.Issued, 0);
         }
         if (rfq.Status is Rev869BStatuses.Cancelled or Rev869BStatuses.Closed) throw new Rev869BConflictException("RFQ is closed.");
-        var qualificationDate = DateOnly.FromDateTime(DateTime.UtcNow);
+        var qualificationDate = db.BusinessDate;
         var categories = rfq.Lines.Select(x => x.Item!.CategoryId).Distinct().Order().ToArray();
         foreach (var category in categories) if (!await vendors.IsEligibleAsync(request.VendorId, rfq.OrganizationId, category, qualificationDate, ct)) throw new InvalidOperationException("Vendor is not active, approved, effective and qualified.");
         var qualifications = await db.VendorQualifications.AsNoTracking()
@@ -110,6 +111,7 @@ public sealed partial class EfRev869BPurchaseService
         var qualificationSnapshot = JsonSerializer.Serialize(new
         {
             snapshotAt = qualificationSnapshotAt,
+            businessDateBasis = SESS.NexaERP.Domain.Common.BusinessDatePolicy.KolkataV1,
             qualifications = qualifications.Select(x => new
             {
                 vendorQualificationId = x.Id, x.VendorId, x.OrganizationId, itemCategoryId = x.ItemCategoryId,
@@ -158,7 +160,7 @@ public sealed partial class EfRev869BPurchaseService
         }
         if (NormalizeCurrency(request.CurrencyCode) != rfq.CurrencyCode) throw new InvalidOperationException("Currency conversion is not configured; quote must match RFQ currency.");
         if (request.Lines.Count != rfq.Lines.Count || request.Lines.Select(x => x.RequestForQuotationLineId).Distinct().Count() != rfq.Lines.Count) throw new InvalidOperationException("Quotation must contain every RFQ line exactly once.");
-        foreach (var category in rfq.Lines.Select(x => x.Item!.CategoryId).Distinct()) if (!await vendors.IsEligibleAsync(invitation.VendorId, rfq.OrganizationId, category, DateOnly.FromDateTime(invitation.InvitedAt.UtcDateTime), ct)) throw new InvalidOperationException("Vendor qualification was not valid at the controlled invitation event.");
+        foreach (var category in rfq.Lines.Select(x => x.Item!.CategoryId).Distinct()) if (!await vendors.IsEligibleAsync(invitation.VendorId, rfq.OrganizationId, category, SESS.NexaERP.Domain.Common.BusinessDatePolicy.EventDate(invitation.InvitedAt, SESS.NexaERP.Domain.Common.BusinessDatePolicy.ReadBasis(invitation.VendorQualificationSnapshotJson)), ct)) throw new InvalidOperationException("Vendor qualification was not valid at the controlled invitation event.");
         // R2: the GST state codes are derived from the vendor and the delivery location, never trusted as typed.
         var states = await QuotationStateRule.DeriveAsync(db, rfq.CompanyId, invitation.VendorId, rfq.DeliveryWarehouseId, ct);
         QuotationStateRule.RequireMatches(request.Lines.Select(x => (rfq.Lines.Single(y => y.Id == x.RequestForQuotationLineId).LineNumber, (string?)x.SupplierStateCode, (string?)x.PlaceOfSupplyStateCode)).ToArray(), states);
@@ -180,7 +182,7 @@ public sealed partial class EfRev869BPurchaseService
             await SavePreauthorizedChangesAsync(ct);
         }
         else await ReserveInvitationAsync(invitation, organization, rfq.RfqNumber, request.InvitationVersion, "Reserved for quotation revision", quoteFingerprint, ct);
-        var next = await NextNumberAsync(organization, "VQ", DateOnly.FromDateTime(now.UtcDateTime), ct);
+        var next = await NextNumberAsync(organization, "VQ", db.BusinessDate, ct);
         var headerDiscount = Rev869BCommercialCalculator.Ensure(request.HeaderDiscountValue, "quotation header discount");
         if (headerDiscount < 0) throw new Rev869BValidationException("Quotation header discount cannot be negative.");
         var quote = new VendorQuotation { OrganizationId = organization, QuotationNumber = next.Number, FinancialYear = next.Year, SequenceNumber = next.Sequence, RfqVendorInvitationId = invitation.Id, VendorId = invitation.VendorId, RootQuotationId = previous?.RootQuotationId ?? Guid.NewGuid(), PreviousRevisionId = previous?.Id, RevisionNumber = (previous?.RevisionNumber ?? 0) + 1, VendorQuoteReference = Required(request.VendorQuoteReference, "Vendor quote reference"), SubmissionSource = source, ReceivedAt = request.ReceivedAt, AttachmentObjectKey = Required(request.AttachmentObjectKey, "Attachment object key"), AttachmentSha256 = request.AttachmentSha256.Trim().ToUpperInvariant(), VendorAttestation = Required(request.VendorAttestation, "Vendor attestation"), CurrencyCode = rfq.CurrencyCode, Status = Rev869BStatuses.Submitted, SubmittedAt = now, IsLateSubmission = late, LateAuthorizedByEmployeeId = late ? actor : null, LateAuthorizationRemarks = late ? request.LateAuthorizationRemarks!.Trim() : null, PaymentTermsSnapshot = Required(request.PaymentTerms, "Payment terms"), DeliveryTermsSnapshot = Required(request.DeliveryTerms, "Delivery terms"), WarrantyTermsSnapshot = Required(request.WarrantyTerms, "Warranty terms"), HeaderDiscountValue = headerDiscount, IdempotencyKey = quoteFingerprint, TransitionCorrelationId = quoteFingerprint, CreatedBy = user.LoginId };
@@ -207,7 +209,7 @@ public sealed partial class EfRev869BPurchaseService
             var allocatedHeaderDiscount = Math.Min(remainingHeaderDiscount, availableForHeaderDiscount);
             var commercialInput = undiscountedHeaderInput with { HeaderDiscountValue = allocatedHeaderDiscount };
             var taxableBase = Rev869BCommercialCalculator.TaxableValue(commercialInput);
-            var tax = await taxes.ResolveAsync(new TaxResolutionRequest(rfq.OrganizationId, TaxJurisdictions.IndiaGst, Required(input.HsnSacCode, "HSN/SAC"), input.SupplierStateCode, input.PlaceOfSupplyStateCode, input.VendorRegistrationType, DateOnly.FromDateTime(request.ReceivedAt.UtcDateTime), taxableBase), ct);
+            var tax = await taxes.ResolveAsync(new TaxResolutionRequest(rfq.OrganizationId, TaxJurisdictions.IndiaGst, Required(input.HsnSacCode, "HSN/SAC"), input.SupplierStateCode, input.PlaceOfSupplyStateCode, input.VendorRegistrationType, BusinessCalendar.DateAt(request.ReceivedAt), taxableBase), ct);
             var calc = Rev869BCommercialCalculator.Calculate(commercialInput with { CgstRate = tax.CgstRate, SgstRate = tax.SgstRate, IgstRate = tax.IgstRate, CessRate = tax.CessRate, RoundingScale = tax.RoundingScale });
             quote.Lines.Add(new VendorQuotationLine { RequestForQuotationLineId = rfqLine.Id, LineNumber = ++lineNo, Quantity = input.Quantity, UnitRate = input.UnitRate, DiscountValue = calc.DiscountValue, HeaderDiscountValue = calc.HeaderDiscountValue, PackingForwarding = calc.PackingForwarding, Freight = calc.Freight, Insurance = calc.Insurance, OtherCharges = calc.OtherCharges, TaxableValue = calc.TaxableValue, TaxGstSettingId = tax.Id, TaxRuleSnapshotJson = JsonSerializer.Serialize(TaxSnapshot(tax), JsonOptions), HsnSacCode = Required(input.HsnSacCode, "HSN/SAC"), SupplierStateCode = Required(input.SupplierStateCode, "Supplier state"), PlaceOfSupplyStateCode = Required(input.PlaceOfSupplyStateCode, "Place of supply"), VendorRegistrationType = Required(input.VendorRegistrationType, "Vendor registration type"), CgstValue = calc.CgstValue, SgstValue = calc.SgstValue, IgstValue = calc.IgstValue, CessValue = calc.CessValue, RoundOff = calc.RoundOff, TotalPayableValue = calc.TotalPayableValue, PromisedDeliveryDate = input.PromisedDeliveryDate, CreatedBy = user.LoginId });
             remainingHeaderDiscount -= allocatedHeaderDiscount;
@@ -266,7 +268,7 @@ public sealed partial class EfRev869BPurchaseService
             ?? throw new Rev869BNotFoundException("Quotation line was not found in the current organization/quotation.");
         var quote = line.VendorQuotation!; var rfq = quote.RfqVendorInvitation!.RequestForQuotation!;
         if (!await SESS.NexaERP.Infrastructure.Authorization.QuotationTechnicalScope
-            .AccessibleRfqs(db, user, DateOnly.FromDateTime(DateTime.UtcNow)).AnyAsync(x => x.Id == rfq.Id, ct))
+            .AccessibleRfqs(db, user, db.BusinessDate).AnyAsync(x => x.Id == rfq.Id, ct))
         {
             const string reason = "Technical verifier requires active company and department assignments intersecting an active operational scope.";
             await WriteAuditAsync("Security", "Denied", "QuotationTechnicalScope", quote.QuotationNumber, null,

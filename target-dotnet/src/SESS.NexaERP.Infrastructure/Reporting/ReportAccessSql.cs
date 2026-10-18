@@ -12,12 +12,12 @@ internal static class ReportAccessSql
               AND e."LoginEnabled" AND upper(e."Status")='ACTIVE')
             AND (SELECT count(*) FROM advance.employee_company_assignments a
               WHERE a."CompanyId"=c."Id" AND a."EmployeeId"=@employee
-                AND a."IsActive" AND a."Status"='ACTIVE' AND a."EffectiveFrom"<=CURRENT_DATE
-                AND (a."EffectiveTo" IS NULL OR a."EffectiveTo">=CURRENT_DATE))=1
+                AND a."IsActive" AND a."Status"='ACTIVE' AND a."EffectiveFrom"<=@business_date
+                AND (a."EffectiveTo" IS NULL OR a."EffectiveTo">=@business_date))=1
             AND EXISTS(SELECT 1 FROM advance.employee_operational_scopes s
               WHERE s."CompanyId"=c."Id" AND s."OrganizationId"=c."Code"
-                AND s."EmployeeId"=@employee AND s."IsActive" AND s."EffectiveFrom"<=CURRENT_DATE
-                AND (s."EffectiveTo" IS NULL OR s."EffectiveTo">=CURRENT_DATE))
+                AND s."EmployeeId"=@employee AND s."IsActive" AND s."EffectiveFrom"<=@business_date
+                AND (s."EffectiveTo" IS NULL OR s."EffectiveTo">=@business_date))
         ),
         effective_roles AS MATERIALIZED (
           SELECT DISTINCT r."Id",r."Code"
@@ -26,12 +26,12 @@ internal static class ReportAccessSql
           JOIN company c ON c."Id"=a."CompanyId"
           WHERE a."EmployeeId"=@employee AND a."Id"=ANY(@assignments)
             AND a."ApprovalStatus" IN ('Approved','SeedApproved')
-            AND a."EffectiveFrom"<=CURRENT_DATE
-            AND (a."EffectiveTo" IS NULL OR a."EffectiveTo">=CURRENT_DATE)
+            AND a."EffectiveFrom"<=@business_date
+            AND (a."EffectiveTo" IS NULL OR a."EffectiveTo">=@business_date)
             AND EXISTS(SELECT 1 FROM advance.company_role_activations ca
               WHERE ca."CompanyId"=a."CompanyId" AND ca."RoleId"=a."RoleId"
-                AND ca."IsEnabled" AND ca."EffectiveFrom"<=CURRENT_DATE
-                AND (ca."EffectiveTo" IS NULL OR ca."EffectiveTo">=CURRENT_DATE))
+                AND ca."IsEnabled" AND ca."EffectiveFrom"<=@business_date
+                AND (ca."EffectiveTo" IS NULL OR ca."EffectiveTo">=@business_date))
         ),
         report_grants AS MATERIALIZED (
           SELECT p."PageKey",

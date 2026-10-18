@@ -8,6 +8,9 @@ import {
   type OpeningStockView,
 } from '../../api/openingStock'
 import { newIdempotencyKey } from '../../api/stores'
+import { openingValueReviewBody } from './openingValueReview'
+import { ScreenLifecycle } from '../purchase/screenLifecycle'
+import { RequestGate, OperationIntent } from '../purchase/quotationDraft'
 import { ErrorAlert } from '../../components/ErrorAlert'
 import { StatusBadge } from '../employees/StatusBadge'
 import { useSession, PAGE_KEYS } from '../auth/SessionContext'
@@ -47,38 +50,58 @@ export function OpeningStockDetailPage() {
   const [notice, setNotice] = useState('')
   const [busy, setBusy] = useState(false)
   const [reason, setReason] = useState('')
-  const [keyState, setKeyState] = useState<{ fingerprint: string; key: string } | null>(null)
+  const [absenceConfirmed, setAbsenceConfirmed] = useState(false)
+  const [readGate] = useState(() => new RequestGate())
+  const [lifecycle] = useState(() => new ScreenLifecycle().track(readGate))
+  const [intent] = useState(() => new OperationIntent(() => newIdempotencyKey('opening-stock-step')))
+  lifecycle.bindBusy('opening-action', setBusy)
+  const scopeKey = JSON.stringify([me?.OrganizationId, me?.EmployeeId, me?.IdentityIssuer, me?.IdentitySubject, me?.FullAuthorityRoleCodes])
 
   const load = useCallback(async () => {
+    const ticket = readGate.begin()
     setLoading(true)
+    setView(null)
     setError(null)
     try {
-      setView(await getOpeningStock(id))
+      const next = await getOpeningStock(id)
+      if (readGate.isCurrent(ticket)) setView(next)
     } catch (err) {
-      setView(null)
-      setError(err)
+      if (readGate.isCurrent(ticket)) { setView(null); setError(err) }
     } finally {
-      setLoading(false)
+      if (readGate.isCurrent(ticket)) setLoading(false)
     }
-  }, [id])
+  }, [id, readGate])
 
   useEffect(() => {
-    void load()
-  }, [load])
+    lifecycle.mount()
+    return () => lifecycle.unmount()
+  }, [lifecycle])
 
-  const run = async (action: 'value' | 'authorize') => {
-    if (!view) return
-    setBusy(true)
+  useEffect(() => {
+    lifecycle.changeScope()
+    lifecycle.setTarget('opening-action', id)
+    intent.clear()
+    setAbsenceConfirmed(false)
+    setReason('')
     setActionError(null)
     setNotice('')
-    const body = { Version: view.Version, Reason: reason.trim() }
-    const fingerprint = JSON.stringify({ id, action, body })
-    const key = keyState?.fingerprint === fingerprint ? keyState.key : newIdempotencyKey(`opening-stock-${action}`)
-    setKeyState({ fingerprint, key })
+    void load()
+  }, [id, scopeKey, lifecycle, intent, load])
+  const run = async (action: 'value' | 'authorize') => {
+    if (!view || loading || busy || !reason.trim() || (action === 'value' && isIndependentMd && !absenceConfirmed)) return
+    const operation = lifecycle.startAction('opening-action')
+    setActionError(null)
+    setNotice('')
+    const body = action === 'value'
+      ? openingValueReviewBody(view.Version, reason, isIndependentMd, absenceConfirmed)
+      : { Version: view.Version, Reason: reason.trim() }
+    const key = intent.keyFor([scopeKey, id, action, body])
     try {
       const next = action === 'value'
         ? await confirmOpeningStockValue(id, { ...body, IdempotencyKey: key })
         : await authorizeOpeningStock(id, { ...body, IdempotencyKey: key })
+      if (!operation.isLive()) return
+      intent.clear()
       setView(next)
       setReason('')
       setNotice(next.Replayed
@@ -87,9 +110,9 @@ export function OpeningStockDetailPage() {
           ? `Value confirmed at ${money.format(next.TotalValue)} — waiting for the Technical Director.`
           : `Authorized and posted: batch ${next.StockPostingBatchId?.slice(0, 8) ?? '?'} created the AVAILABLE stock and FIFO layers.`)
     } catch (err) {
-      setActionError(err)
+      if (operation.isLive()) setActionError(err)
     } finally {
-      setBusy(false)
+      operation.finish()
     }
   }
 
@@ -105,7 +128,10 @@ export function OpeningStockDetailPage() {
 
   // Grants decide what is offered; the server still checks the role, the
   // FULL/TEMPORARY assignment and the three-person rule.
+  const isIndependentMd = me?.EmployeeCode === 'SESS-02' && me.FullAuthorityRoleCodes.includes('MANAGING_DIRECTOR')
+  const mdCountEligible = view.CountedBy.EmployeeCode === 'SESS-41'
   const canValue = view.Status === 'COUNTED' && can(PAGE_KEYS.openingStock, 'verify')
+    && (!isIndependentMd || mdCountEligible)
   const canAuthorize = view.Status === 'VALUED' && can(PAGE_KEYS.openingStock, 'approve')
   const isCounter = me?.EmployeeId === view.CountedBy.EmployeeId
   const isValuer = me?.EmployeeId === view.ValuedBy?.EmployeeId
@@ -158,6 +184,14 @@ export function OpeningStockDetailPage() {
             {(canAuthorize && (isCounter || isValuer)) && (
               <div className="alert alert-warn">You already took one of the earlier steps, so the server will refuse your authorization — three separate people are required.</div>
             )}
+            {canValue && isIndependentMd && (
+              <label className="field" style={{ marginBottom: 12 }}>
+                <span><input type="checkbox" checked={absenceConfirmed}
+                  onChange={(event) => setAbsenceConfirmed(event.target.checked)} />{' '}
+                  ALFATHIMA is unavailable; KARTHICK recorded this count. I am the independent value reviewer.</span>
+                <span className="text-ink-faint">Your confirmation and reason are recorded. TD remains the separate final approver.</span>
+              </label>
+            )}
             <div className="form-grid">
               <label className="field field-wide">
                 <span className="field-label">{canValue ? 'Valuation reason *' : 'Authorization reason *'}</span>
@@ -167,7 +201,7 @@ export function OpeningStockDetailPage() {
             </div>
             <div className="action-row" style={{ marginTop: 12 }}>
               {canValue && (
-                <button type="button" className="btn btn-primary" disabled={busy || !reason.trim()} onClick={() => void run('value')}>
+                <button type="button" className="btn btn-primary" disabled={busy || !reason.trim() || (isIndependentMd && !absenceConfirmed) || isCounter} onClick={() => void run('value')}>
                   Confirm value ({money.format(view.TotalValue)})
                 </button>
               )}

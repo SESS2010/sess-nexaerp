@@ -35,6 +35,8 @@ public sealed partial class EfMaterialIssueService
             x => x.CompanyId == company.Id && x.CreateIdempotencyKey == key, ct);
         if (replay is not null)
         {
+            if (!MirRequesterPolicy.IsOwn(user, replay.ReturnedByEmployeeId))
+                throw new StoresConflictException("Idempotency key is not owned by this return custodian.");
             if (replay.CreateRequestFingerprint != hash)
                 throw new StoresConflictException("Idempotency key was reused with different return content.");
             await tx.CommitAsync(ct);

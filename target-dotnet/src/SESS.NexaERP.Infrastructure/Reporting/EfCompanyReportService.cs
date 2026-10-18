@@ -14,7 +14,7 @@ namespace SESS.NexaERP.Infrastructure.Reporting;
 public sealed class EfCompanyReportService(NexaErpDbContext db, ICurrentUser user, IOptions<ReportCalendarOptions>? calendar = null) : ICompanyReportService
 {
     private TimeZoneInfo CalendarZone => (calendar?.Value ?? new ReportCalendarOptions()).Resolve(user.OrganizationId);
-    private DateOnly Today => ReportCalendarOptions.DateInZone(DateTimeOffset.UtcNow,CalendarZone);
+    private DateOnly Today => db.BusinessDate;
     public async Task<IReadOnlyList<ReportDescriptor>> ListAsync(CancellationToken cancellationToken)
     {
         RequireIdentity();
@@ -122,6 +122,7 @@ public sealed class EfCompanyReportService(NexaErpDbContext db, ICurrentUser use
     {
         command.Parameters.AddWithValue("organization", user.OrganizationId!.Trim().ToUpperInvariant());
         command.Parameters.AddWithValue("employee", user.EmployeeId!.Value);
+        command.Parameters.AddWithValue("business_date", NpgsqlDbType.Date, db.BusinessDate);
         command.Parameters.AddWithValue("assignments", NpgsqlDbType.Array | NpgsqlDbType.Uuid,
             user.EffectiveRoleAssignments.Select(assignment => assignment.AssignmentId).Distinct().ToArray());
     }
@@ -141,7 +142,7 @@ public sealed class EfCompanyReportService(NexaErpDbContext db, ICurrentUser use
     internal static CompanyReportRequest Normalize(ReportDefinition definition, CompanyReportRequest request, DateOnly? calendarToday = null)
     {
         if(definition.Key=="machine-dossier" && (request.Group is null || !request.Group.Contains("machineSerial",StringComparison.Ordinal))) throw new ReportRequestException("Select exactly one machine serial for the delivered-machine dossier.");
-        var today = calendarToday ?? DateOnly.FromDateTime(DateTime.UtcNow);
+        var today = calendarToday ?? BusinessCalendar.DateAt(DateTimeOffset.UtcNow);
         var to = request.ToDate ?? today;
         var from = definition.UsesPeriod ? request.FromDate ?? new DateOnly(to.Year, to.Month, 1) : DateOnly.MinValue;
         if (to == DateOnly.MinValue || to == DateOnly.MaxValue || definition.UsesPeriod && (from == DateOnly.MinValue || from == DateOnly.MaxValue))

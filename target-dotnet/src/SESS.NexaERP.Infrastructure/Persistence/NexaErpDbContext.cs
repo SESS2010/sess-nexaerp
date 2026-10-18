@@ -10,8 +10,14 @@ using SESS.NexaERP.Domain.Stores;
 
 namespace SESS.NexaERP.Infrastructure.Persistence;
 
-public sealed partial class NexaErpDbContext(DbContextOptions<NexaErpDbContext> options) : DbContext(options)
+public sealed partial class NexaErpDbContext(DbContextOptions<NexaErpDbContext> options,
+    SESS.NexaERP.Application.Common.OperationBusinessDate? businessDate = null) : DbContext(options)
 {
+    private readonly SESS.NexaERP.Application.Common.OperationBusinessDate operationBusinessDate =
+        businessDate ?? new(new SESS.NexaERP.Infrastructure.SystemClock());
+    [System.ComponentModel.DataAnnotations.Schema.NotMapped]
+    public DateOnly BusinessDate => operationBusinessDate.Today;
+
     public DbSet<Role> Roles => Set<Role>();
     public DbSet<CompanyRoleActivation> CompanyRoleActivations => Set<CompanyRoleActivation>();
     public DbSet<UserAccount> UserAccounts => Set<UserAccount>();

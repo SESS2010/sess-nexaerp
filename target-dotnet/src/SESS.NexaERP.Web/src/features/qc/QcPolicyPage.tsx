@@ -1,3 +1,4 @@
+import { businessDate } from '../../utils/businessDate'
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { createQcPolicy, decideQcPolicy, listQcPolicies } from '../../api/qc'
 import { listItemCategories, listUoms } from '../../api/items'
@@ -13,7 +14,7 @@ type StatusFilter = 'ALL' | typeof PENDING | 'Approved' | 'Rejected'
 /** MasterApprovalStatuses.PendingApproval — the value carries a space. */
 const PENDING = 'Pending Approval'
 
-const today = () => new Date().toISOString().slice(0, 10)
+const today = () => businessDate()
 
 /**
  * QC inspection policies: what the inspector must measure on a lot before it

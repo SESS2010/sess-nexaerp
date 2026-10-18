@@ -1,3 +1,4 @@
+import { businessDate } from '../../utils/businessDate'
 import { useEffect, useState } from 'react'
 import { createJobOrder, lookupJobOrderCustomerPoLines } from '../../api/production'
 import { newIdempotencyKey } from '../../api/stores'
@@ -11,7 +12,7 @@ interface Props {
 }
 
 function today(): string {
-  return new Date().toISOString().slice(0, 10)
+  return businessDate()
 }
 
 /**

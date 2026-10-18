@@ -36,7 +36,8 @@ public sealed class EfPagePermissionService(NexaErpDbContext db) : IPagePermissi
         CancellationToken cancellationToken)
     {
         var roles = NormalizeRoles(assignments.Select(x => x.RoleCode).ToArray());
-        var result = new HashSet<string>(RoleAuthorityResolution.UniversalEmployeePermissions, StringComparer.Ordinal);
+        var requesterOnly = MirRequesterPolicy.IsMirOnly(roles);
+        var result = new HashSet<string>(requesterOnly ? [] : RoleAuthorityResolution.UniversalEmployeePermissions, StringComparer.Ordinal);
         if (roles.Length > 0)
         {
             var grants = await RoleGrants(roles).ToListAsync(cancellationToken);
@@ -61,6 +62,7 @@ public sealed class EfPagePermissionService(NexaErpDbContext db) : IPagePermissi
         foreach (var action in SupportedActions)
             if (EmployeeGrantAllows(grant.Permission, action)) result.Add($"{grant.PageKey}:{action}");
 
+        if (requesterOnly) result.RemoveWhere(permission => !MirRequesterPolicy.AllowsMirAction(roles,permission[..permission.LastIndexOf(':')], permission[(permission.LastIndexOf(':') + 1)..]));
         return result.Order(StringComparer.Ordinal).ToArray();
     }
 

@@ -128,7 +128,7 @@ public sealed class EfNotificationDueEventProcessor(NexaErpDbContext db) : INoti
             .Select(x => new { x.Id, x.CompanyId, x.IssueNumber, x.IssuedToEmployeeId, x.ReturnDueAt })
             .ToListAsync(ct);
         var changed = 0;
-        var onDate = DateOnly.FromDateTime(now.UtcDateTime);
+        var onDate = db.BusinessDate;
         foreach (var source in candidates)
         {
             if (await db.NotificationEvents.AnyAsync(x => x.CompanyId == source.CompanyId &&
@@ -166,7 +166,7 @@ public sealed class EfNotificationDueEventProcessor(NexaErpDbContext db) : INoti
                 QcDueAt = x.GoodsReceiptLine.GoodsReceipt.ReceivedAt.AddDays(x.GoodsReceiptLine.GoodsReceipt.QcCompletionDaysSnapshot)
             }).ToListAsync(ct);
         var changed = 0;
-        var onDate = DateOnly.FromDateTime(now.UtcDateTime);
+        var onDate = db.BusinessDate;
         foreach (var source in candidates)
         {
             var key = $"QC-AGEING:{source.Id:N}";

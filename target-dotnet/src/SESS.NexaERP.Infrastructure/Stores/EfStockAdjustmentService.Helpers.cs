@@ -170,7 +170,7 @@ public sealed partial class EfStockAdjustmentService
     private async Task<string> NextNumberAsync(Guid companyId, CancellationToken ct)
     {
         const string prefix = "ADJ";
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var today = db.BusinessDate;
         var year = today.Month >= 4 ? $"{today.Year % 100:00}-{(today.Year + 1) % 100:00}"
             : $"{(today.Year - 1) % 100:00}-{today.Year % 100:00}";
         var organization = Organization();

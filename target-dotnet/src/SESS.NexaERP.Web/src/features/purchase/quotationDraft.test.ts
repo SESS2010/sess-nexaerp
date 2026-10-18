@@ -248,3 +248,17 @@ test('two quotations with several lines group to two headers; an unnamed header 
   assert.deepEqual(choices.map((c) => [c.quotationId, c.resolved]), [['q-a', true], ['q-b', false]])
   assert.ok(choices.every((c) => !['a1', 'a2', 'b1'].includes(c.quotationId)), 'header ids, never line ids')
 })
+
+test('F21 approver labels come from the authorized comparison without reading quotation lists', () => {
+  const line = { Id: 'l1', VendorQuotationLineId: 'ql1', VendorQuotationId: 'q1',
+    QuotationNumber: 'VQ-001', VendorCode: 'V-001', VendorName: 'Vendor One', TechnicalComplianceSnapshot: 'TechnicallyCompliant' } as ComparisonLine
+  const choices = comparisonQuotationChoices([line], [])
+  assert.equal(choices.length, 1)
+  assert.equal(choices[0].resolved, true)
+  assert.ok(choices[0].label.includes('VQ-001'))
+  assert.ok(choices[0].label.includes('V-001'))
+  assert.ok(choices[0].label.includes('Vendor One'))
+  const incomplete = comparisonQuotationChoices([{ ...line, VendorName: undefined }], [])
+  assert.equal(incomplete[0].resolved, false)
+  assert.ok(!incomplete[0].label.includes('Vendor One'))
+})

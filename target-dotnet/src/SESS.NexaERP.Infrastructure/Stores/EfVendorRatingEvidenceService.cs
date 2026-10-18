@@ -44,8 +44,7 @@ public sealed class EfVendorRatingEvidenceService(NexaErpDbContext db, ICurrentU
         user.RequireRole("view", "QC_MANAGER");
         var organization = user.OrganizationId?.Trim().ToUpperInvariant();
         if (string.IsNullOrWhiteSpace(organization)) throw new UnauthorizedAccessException("Select a company.");
-        var zone = TimeZoneInfo.FindSystemTimeZoneById(calendar.Value.CompanyTimeZones.TryGetValue(organization, out var configured)
-            ? configured : calendar.Value.DefaultTimeZone);
+        var zone = calendar.Value.Resolve(organization);
         await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.RepeatableRead, ct);
         var company = await db.Companies.Where(x => x.Code == organization && x.IsActive && x.Status == "ACTIVE")
             .Select(x => (Guid?)x.Id).SingleOrDefaultAsync(ct)

@@ -48690,11 +48690,15 @@ namespace SESS.NexaERP.Infrastructure.Persistence.Migrations
                         .IsUnique()
                         .HasFilter("\"IsActive\" = TRUE AND \"IdentityType\" = 'HUMAN'");
 
+                    b.HasIndex(new[] { "CompanyId", "OrganizationId", "EmployeeId", "IdentityType", "IsActive" }, "IX_employee_identity_accounts_backup")
+                        .IsUnique()
+                        .HasFilter("\"IsActive\" = TRUE AND \"IdentityType\" = 'HUMAN_ACCT_BACKUP'");
+
                     b.ToTable("employee_identity_mappings", "advance", t =>
                         {
                             t.HasCheckConstraint("CK_employee_identity_mapping_dates", "\"EffectiveTo\" IS NULL OR \"EffectiveTo\" >= \"EffectiveFrom\"");
 
-                            t.HasCheckConstraint("CK_employee_identity_mapping_type", "\"IdentityType\" IN ('HUMAN','SERVICE')");
+                            t.HasCheckConstraint("CK_employee_identity_mapping_type", "\"IdentityType\" IN ('HUMAN','SERVICE','HUMAN_ACCT_BACKUP')");
                         });
                 });
 
