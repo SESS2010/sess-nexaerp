@@ -57,13 +57,38 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             var migrator = model.GetService<IMigrator>();
             const string previous = "20260913090000_GovernedVendorBankAdvice";
             const string current = "20260913100000_VendorPoCashCap";
-            await using (var down = new NpgsqlCommand(SESS.NexaERP.Infrastructure.Persistence.Migrations.PurchaseOrderCancellationHistorySql.Change(false) + migrator.GenerateScript(current, previous), source))
+            // The predecessor guard checks its exact historical body. Isolate only its
+            // calendar anchors around that DDL, restoring today's semantics before HTTP.
+            // Never relax the historical guard or downgrade the retained calendar migration.
+            const string historySignature = "advance.rev869b_guard_history_insert()";
+            async Task<string> HistoryContract()
+            {
+                await using var contract = new NpgsqlCommand("""
+                    SELECT jsonb_build_object('definition', pg_get_functiondef(p.oid),
+                      'owner', p.proowner, 'acl', p.proacl::text, 'config', p.proconfig,
+                      'securityDefiner', p.prosecdef, 'language', p.prolang,
+                      'strict', p.proisstrict, 'leakproof', p.proleakproof,
+                      'parallel', p.proparallel, 'volatility', p.provolatile)::text
+                    FROM pg_proc p WHERE p.oid = 'advance.rev869b_guard_history_insert()'::regprocedure;
+                    """, source);
+                return Assert.IsType<string>(await contract.ExecuteScalarAsync());
+            }
+            var historyBefore = await HistoryContract();
+            var historicalDates = SESS.NexaERP.Infrastructure.Persistence.Migrations.InstalledFunctionSql.Rewrite(
+                historySignature, true, ("advance.current_business_date()", "statement_timestamp()::date", 4));
+            var currentDates = SESS.NexaERP.Infrastructure.Persistence.Migrations.InstalledFunctionSql.Rewrite(
+                historySignature, true, ("statement_timestamp()::date", "advance.current_business_date()", 4));
+            await using (var down = new NpgsqlCommand(historicalDates +
+                SESS.NexaERP.Infrastructure.Persistence.Migrations.PurchaseOrderCancellationHistorySql.Change(false) +
+                migrator.GenerateScript(current, previous) + currentDates, source))
                 await down.ExecuteNonQueryAsync();
             var legacy = await Post<VendorAdvanceView>(host.Client, financial + "advances",
                 new RecordVendorAdvanceRequest(prior.Id, SESS.NexaERP.Application.Common.BusinessCalendar.DateAt(DateTimeOffset.UtcNow), 1m, "INR",
                     "LEGACY-OVER-CASH", "evidence/legacy-over-cash", "cash-revision-legacy"));
-            await using (var up = new NpgsqlCommand(migrator.GenerateScript(previous, current) + SESS.NexaERP.Infrastructure.Persistence.Migrations.PurchaseOrderCancellationHistorySql.Change(true), source))
+            await using (var up = new NpgsqlCommand(historicalDates + migrator.GenerateScript(previous, current) +
+                SESS.NexaERP.Infrastructure.Persistence.Migrations.PurchaseOrderCancellationHistorySql.Change(true) + currentDates, source))
                 await up.ExecuteNonQueryAsync();
+            Assert.Equal(historyBefore, await HistoryContract());
 
             var approvalScopeSetups = new List<object>();
             var approvalSteps = new List<object>();

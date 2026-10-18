@@ -91,7 +91,11 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
             "vendor_advance_adjustment_restorations", "vendor_advance_reversals",
             "vendor_bills", "vendor_payment_allocations", "purchase_orders", "vendors" })
             await Execute($"CREATE TABLE currency_read_fixture.{table} AS TABLE advance.{table};");
-        foreach (var signature in new[] { "advance.payment_due_date(timestamp with time zone,text)",
+        // Copy the installed calendar contracts too: these read functions now depend on
+        // them. Preserve the deployed cutover rather than manufacturing a fixture date.
+        foreach (var signature in new[] { "advance.current_business_date()",
+            "advance.business_calendar_cutover()", "advance.business_event_date(timestamp with time zone)",
+            "advance.payment_due_date(timestamp with time zone,text)",
             "advance.vendor_advance_json(uuid,uuid,boolean)",
             "advance.list_vendor_payables(uuid,uuid,boolean)", "advance.list_vendor_positions(uuid)" })
         {
@@ -103,6 +107,18 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                     "SET search_path TO 'pg_catalog', 'currency_read_fixture'", StringComparison.Ordinal);
             await Execute(sql);
         }
+        await using (var calendarProof = new NpgsqlCommand("""
+            SELECT currency_read_fixture.current_business_date() = advance.current_business_date()
+              AND currency_read_fixture.business_calendar_cutover() = advance.business_calendar_cutover()
+              AND NOT EXISTS (
+                SELECT 1 FROM (VALUES
+                  (timestamptz '2026-10-17 18:29:59+00'),
+                  (timestamptz '2026-10-17 18:30:00+00'),
+                  (timestamptz '2026-10-18 00:00:00+00')) AS boundary(at)
+                WHERE currency_read_fixture.business_event_date(boundary.at)
+                  IS DISTINCT FROM advance.business_event_date(boundary.at));
+            """, connection, transaction))
+            Assert.True(Assert.IsType<bool>(await calendarProof.ExecuteScalarAsync()));
         await using (var tag = new NpgsqlCommand("""
             UPDATE currency_read_fixture.purchase_orders SET "CurrencyCode"='USD' WHERE "Id"=@usd;
             UPDATE currency_read_fixture.vendor_advances a SET "CurrencyCode"=po."CurrencyCode"

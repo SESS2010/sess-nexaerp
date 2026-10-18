@@ -100,7 +100,7 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 if(active=="mir-approval")
                 {
                     Assert.Null(row.AssignedApproverEmployeeId);
-                    Assert.Equal(new[]{"STORES_MANAGER","PRODUCTION_MANAGER"},row.EligibleApprovalRoles);
+                    Assert.Equal(new[]{"STORES_MANAGER","PRODUCTION_MANAGER","MIR_APPROVER"},row.EligibleApprovalRoles);
                     Assert.Contains("No named approver",row.ResponsibilityIssue!,StringComparison.Ordinal);
                 }
             }
