@@ -273,8 +273,10 @@ public sealed partial class AdvanceMigrationSqlSyntaxTests
                 .Select(x => new { x.Id,x.HandoffQuantity }).SingleAsync());
             Assert.Equal(1m,handoff.HandoffQuantity);
             Select("SESS-15","PURCHASE_EXECUTIVE");
+            // Keep the historical role/scope clock, but real RFQ deadlines must be future
+            // instants relative to the captured event clock, just like receipt/quote events.
             var rfq = await Post<Rev869BDocumentResult>(client,"/api/v1/purchase/rfqs",
-                new Rev869BCreateRfqRequest(now.AddDays(7),"INR",false,null,key+"-rfq",[new(handoff.Id,1)]));
+                new Rev869BCreateRfqRequest(eventNow.AddDays(7),"INR",false,null,key+"-rfq",[new(handoff.Id,1)]));
             var quotes = new List<Rev869BDocumentResult>();
             var lineId = await Query(options,db => db.RequestForQuotationLines.Where(x => x.RequestForQuotationId == rfq.Id).Select(x => x.Id).SingleAsync());
             for (var i = 0; i < vendorIds.Length; i++)
