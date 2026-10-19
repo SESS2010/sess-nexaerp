@@ -41,7 +41,7 @@ export function BarcodeLabelDialog({ labels, onClose, canPrintNow }: { labels: B
         </>}
         {labels.some(label => label.alternativeValue) && <label><input type="checkbox" checked={useCodes} onChange={event => setUseCodes(event.target.checked)} /> Use canonical item / bin codes instead of master barcodes</label>}
         <label>Copies per label <input inputMode="numeric" value={copies} onChange={event => setCopies(event.target.value)} /></label>
-        <p>Zebra ZD230, 203 dpi: print at 100% / actual size. Match the Windows driver media size, use zero printer margins, and turn browser headers and footers off. Confirm one label with the TVS scanner before a batch.</p>
+        <p>Zebra ZD230, 203 dpi: print at 100% / actual size. Match the Windows driver media size, use zero printer margins, and turn browser headers and footers off. Confirm one label with the Honeywell Voyager 1470g scanner before a batch.</p>
         {error && <p role="alert">{error}</p>}
         <button type="button" disabled={!canPrint} onClick={() => { if (!canPrintNow()) { onClose(); return } if (canPrint) window.print() }}>Print labels</button>
         <button type="button" onClick={onClose}>Close</button>

@@ -1,5 +1,6 @@
 import { MasterImportPage } from './features/masters/MasterImportPage'
 import { useState } from 'react'
+import { useMobileMenu } from './components/useMobileMenu'
 import { PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 import { Navigate, NavLink, Route, Routes, useLocation } from 'react-router-dom'
 import { NavSection } from './components/NavSection'
@@ -149,7 +150,9 @@ function Shell({ children }: { children: React.ReactNode }) {
   const [menuHidden, setMenuHidden] = useState(() => {
     try { return localStorage.getItem('nexaerp.menuHidden') === '1' } catch { return false }
   })
+  const mobileMenu = useMobileMenu(location.key)
   const toggleMenu = () => {
+    if (mobileMenu.narrow) { mobileMenu.toggle(); return }
     setMenuHidden((hidden) => {
       try { localStorage.setItem('nexaerp.menuHidden', hidden ? '0' : '1') } catch { /* private window */ }
       return !hidden
@@ -160,7 +163,9 @@ function Shell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="app-shell">
-      <aside className={`sidebar${menuHidden ? ' sidebar-hidden' : ''}`} aria-hidden={menuHidden}>
+      {mobileMenu.narrow && mobileMenu.open && <button className="mobile-menu-backdrop" aria-label="Close menu" onClick={mobileMenu.close} />}
+      <aside id="main-navigation" ref={mobileMenu.drawerRef} className={`sidebar${menuHidden ? ' sidebar-hidden' : ''}${mobileMenu.open ? ' mobile-menu-open' : ''}`} aria-label="Main navigation" aria-hidden={mobileMenu.narrow ? !mobileMenu.open : menuHidden} inert={mobileMenu.narrow ? !mobileMenu.open : menuHidden} onClick={(event) => { if ((event.target as HTMLElement).closest('a[href]')) mobileMenu.close() }}>
+        {mobileMenu.narrow && <button className="mobile-menu-close" onClick={mobileMenu.close}>Close menu</button>}
         <div className="brand">
           <SessLogo />
           <div>
@@ -169,7 +174,7 @@ function Shell({ children }: { children: React.ReactNode }) {
           </div>
         </div>
         <nav className="nav">
-          {loading ? <span className="nav-link disabled">Loading session…</span> : null}
+          {loading ? <span className="nav-link disabled">Loading sessionâ€¦</span> : null}
           {can(PAGE_KEYS.ownMirs) && <NavLink to="/employee/my-mirs" className={navLinkClass}>My material requests</NavLink>}
           {!portalOnly && <>
           {(PURCHASE_DASHBOARD_KEYS.some((key) => can(key)) || canOpenAnyStoresSection(can) || can('tracking.pending')) && (
@@ -259,10 +264,12 @@ function Shell({ children }: { children: React.ReactNode }) {
             <button
               type="button"
               className="menu-toggle"
+              ref={mobileMenu.buttonRef}
+              aria-controls="main-navigation"
               onClick={toggleMenu}
-              title={menuHidden ? 'Show menu' : 'Hide menu'}
-              aria-label={menuHidden ? 'Show menu' : 'Hide menu'}
-              aria-expanded={!menuHidden}
+              title={(mobileMenu.narrow ? !mobileMenu.open : menuHidden) ? 'Show menu' : 'Hide menu'}
+              aria-label={(mobileMenu.narrow ? !mobileMenu.open : menuHidden) ? 'Show menu' : 'Hide menu'}
+              aria-expanded={mobileMenu.narrow ? mobileMenu.open : !menuHidden}
             >
               {menuHidden ? <PanelLeftOpen size={18} aria-hidden /> : <PanelLeftClose size={18} aria-hidden />}
             </button>
